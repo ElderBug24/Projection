@@ -1,0 +1,11 @@
+[package]
+name = "project"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+braille = { path = "../braille/" }
+crossterm = "0.29.0"
+glam = "0.32.1"
+rand = "0.10.0"
+
