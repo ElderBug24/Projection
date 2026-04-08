@@ -13,7 +13,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, DisableLineWrap, Clear, ClearType, size, enable_raw_mode},
     cursor::{MoveTo, Hide, Show},
     style::Print,
-    event::{Event, KeyEvent, KeyCode, read, poll}
+    event::{Event, KeyEvent, KeyCode, ModifierKeyCode, read, poll}
 };
 use glam::Vec3;
 use rand::RngExt;
@@ -90,10 +90,10 @@ fn main() -> Result<()> {
             Vec3::new(0.707, 0.707, 1.707),
             Vec3::new(0.0, -0.707, 1.707),
             Vec3::new(-0.707, 0.707, 1.707),
-            Vec3::new(0.0, 0.0, 3.0), // 4
-            Vec3::new(5.0, -5.0, 2.0),
-            Vec3::new(-5.0, -5.0, 2.0),
-            Vec3::new(0.0, 5.0, 2.0)
+            Vec3::new(2.0, 1.0, 0.1),
+            Vec3::new(2.0, 1.0, 5.0),
+            Vec3::new(-2.0, 1.0, 5.0),
+            Vec3::new(-2.0, 1.0, 0.1)
         ],
         faces: vec![
             Face {
@@ -108,24 +108,23 @@ fn main() -> Result<()> {
             },
             Face {
                 vertices: (4, 5, 6),
-                normal: Vec3::new(-1.0, -1.0, -1.0).normalize(),
-                color: 200.0
+                normal: Vec3::new(0.0, -1.0, 0.0),
+                color: 255.0
             },
             Face {
-                vertices: (4, 6, 7),
-                normal: Vec3::new(1.0, -1.0, -1.0).normalize(),
-                color: 200.0
-            },
-            Face {
-                vertices: (4, 7, 5),
-                normal: Vec3::new(0.0, -1.0, -1.0).normalize(),
-                color: 200.0
-            },
+                vertices: (4, 7, 6),
+                normal: Vec3::new(0.0, -1.0, 0.0),
+                color: 255.0
+            }
         ],
         lights: vec![
             Light {
                 pos: Vec3::new(0.0, 0.0, 0.0),
-                intensity: 5.0
+                intensity: 15.0
+            },
+            Light {
+                pos: Vec3::ZERO,
+                intensity: 3.0
             }
         ]
     };
@@ -141,8 +140,10 @@ fn main() -> Result<()> {
     loop {
         time += 0.01;
 
-        scene.lights[0].pos.x = time.cos();
-        scene.lights[0].pos.y = time.sin();
+        // scene.lights[0].pos.x = time.cos();
+        // scene.lights[0].pos.y = time.sin() - 1.0;
+        // scene.camera.pos.x = time/10.0;
+        // scene.camera.yaw = time;
 
         let now = Instant::now();
         let dt = now.duration_since(last_frame);
@@ -154,14 +155,37 @@ fn main() -> Result<()> {
             continue;
         }
 
+        let cam_forward = (scene.camera.rotation() * Vec3::Z).with_y(0.0);
+        let cam_right = (scene.camera.rotation() * Vec3::X).with_y(0.0);
+        let cam_forward = scene.camera.forward();
+        let cam_right = scene.camera.right();
+        let cam_up = -Vec3::Y;
         if poll(Duration::from_millis(5))? {
             if let Event::Key(KeyEvent { code, .. }) = read()? {
                 match code {
                     KeyCode::Esc => break,
+                    KeyCode::Char('w') => scene.camera.pos += cam_forward * 0.05,
+                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * 0.05,
+                    KeyCode::Char('d') => scene.camera.pos += cam_right * 0.05,
+                    KeyCode::Char('a') => scene.camera.pos -= cam_right * 0.05,
+                    KeyCode::Char(' ') => scene.camera.pos += cam_up * 0.05,
+                    KeyCode::Char('v') => scene.camera.pos -= cam_up * 0.05,
+                    KeyCode::Modifier(ModifierKeyCode::LeftControl) => scene.camera.pos -= cam_up * 0.05,
+                    KeyCode::Char('e') => scene.camera.yaw -= 0.02,
+                    KeyCode::Char('q') => scene.camera.yaw += 0.02,
+                    KeyCode::Char('r') => scene.camera.pitch -= 0.02,
+                    KeyCode::Char('f') => scene.camera.pitch += 0.02,
                     _ => {}
                 }
             }
         }
+        scene.lights[1].pos = scene.camera.pos;
+
+        execute!(
+            stdout,
+            MoveTo(0, 0),
+            Print(scene.camera.pos)
+        ).unwrap();
 
         grid.resize(cols, rows, (0, 0), BrailleCharUnOrdered::EMPTY);
         img.clear();
