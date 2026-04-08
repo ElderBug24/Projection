@@ -86,33 +86,46 @@ fn main() -> Result<()> {
             roll: 0.0
         },
         vertices: vec![
-            Vec3::new(0.0, -0.2, 1.0),
-            Vec3::new(0.5, 0.0, 2.0),
-            Vec3::new(0.0, -1.0, 1.5),
-            Vec3::new(-0.5, 0.0, 2.0),
+            Vec3::new(0.0, 0.707, 1.0),
+            Vec3::new(0.707, 0.707, 1.707),
+            Vec3::new(0.0, -0.707, 1.707),
+            Vec3::new(-0.707, 0.707, 1.707),
+            Vec3::new(0.0, 0.0, 3.0), // 4
+            Vec3::new(5.0, -5.0, 2.0),
+            Vec3::new(-5.0, -5.0, 2.0),
+            Vec3::new(0.0, 5.0, 2.0)
         ],
         faces: vec![
             Face {
                 vertices: (0, 1, 2),
-                normal: Vec3::new(1.0, 1.0, -1.0),
+                normal: Vec3::new(1.0, 1.0, -1.0).normalize(),
                 color: 255.0
             },
             Face {
                 vertices: (0, 2, 3),
-                normal: Vec3::new(-1.0, 1.0, -1.0),
+                normal: Vec3::new(-1.0, 1.0, -1.0).normalize(),
                 color: 255.0
             },
             Face {
-                vertices: (1, 2, 3),
-                normal: Vec3::new(0.0, -1.0, -1.0),
-                color: 255.0
-            }
-
+                vertices: (4, 5, 6),
+                normal: Vec3::new(-1.0, -1.0, -1.0).normalize(),
+                color: 200.0
+            },
+            Face {
+                vertices: (4, 6, 7),
+                normal: Vec3::new(1.0, -1.0, -1.0).normalize(),
+                color: 200.0
+            },
+            Face {
+                vertices: (4, 7, 5),
+                normal: Vec3::new(0.0, -1.0, -1.0).normalize(),
+                color: 200.0
+            },
         ],
         lights: vec![
             Light {
                 pos: Vec3::new(0.0, 0.0, 0.0),
-                intensity: 1.0
+                intensity: 5.0
             }
         ]
     };
