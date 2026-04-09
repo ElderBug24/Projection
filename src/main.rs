@@ -11,12 +11,11 @@ use std::ops::{Add, Mul};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, DisableLineWrap, Clear, ClearType, size, enable_raw_mode},
-    cursor::{MoveTo, Hide, Show},
+    cursor::{MoveTo, Hide},
     style::Print,
     event::{Event, KeyEvent, KeyCode, ModifierKeyCode, read, poll}
 };
 use glam::Vec3;
-use rand::RngExt;
 
 fn get_screen_size() -> Result<(usize, usize)> {
     let (w, h) = size()?;
@@ -32,9 +31,6 @@ fn index<N: Add<Output = N> + Mul<Output = N>>(x: N, y: N, width: N) -> N {
 fn main() -> Result<()> {
     let mut stdout = stdout();
 
-    let mut rng = rand::rng();
-
-    let (mut prev_cols, mut prev_rows) = get_screen_size()?;
     let (mut cols, mut rows) = get_screen_size()?;
 
     execute!(stdout, EnterAlternateScreen)?;
@@ -43,91 +39,36 @@ fn main() -> Result<()> {
 
     let mut grid: BrailleCharGridVector<BrailleCharUnOrdered> = BrailleCharGridVector::new(cols, rows);
 
-    // let mut img = vec![Vec3::ZERO; cols * rows * 8];
     let mut img = Canva::new(cols * 2, rows * 4);
 
-    // let scene1 = Scene3D {
-    //     camera: Camera {
-    //         pos: Vec3::ZERO,
-    //         yaw: 0.0,
-    //         pitch: 0.0,
-    //         roll: 0.0
-    //     },
-    //     vertices: vec![
-    //         Vec3::new(0.8, 1.0, 1.0),
-    //         Vec3::new(0.8, 1.0, 1.8),
-    //         Vec3::new(-0.8, 1.0, 1.8),
-    //         Vec3::new(0.8, 0.0, 1.8)
-    //     ],
-    //     faces: vec![
-    //         Face {
-    //             vertices: (0, 1, 2),
-    //             normal: Vec3::new(0.0, 1.0, 0.0),
-    //             color: 255.0
-    //         },
-    //         Face {
-    //             vertices: (1, 2, 3),
-    //             normal: Vec3::new(0.0, 0.0, -1.0),
-    //             color: 255.0
-    //         }
-    //     ],
-    //     lights: vec![
-    //         Light {
-    //             pos: Vec3::new(0.0, 3.2, 0.0),
-    //             intensity: 4.0
-    //         }
-    //     ]
-    // };
     let mut scene = Scene3D {
-        camera: Camera {
-            pos: Vec3::ZERO,
-            yaw: 0.0,
-            pitch: 0.0,
-            roll: 0.0
-        },
+        camera: Camera::default(),
         vertices: vec![
             Vec3::new(0.0, 0.707, 1.0),
             Vec3::new(0.707, 0.707, 1.707),
             Vec3::new(0.0, -0.707, 1.707),
             Vec3::new(-0.707, 0.707, 1.707),
-            Vec3::new(2.0, 1.0, 0.1),
-            Vec3::new(2.0, 1.0, 5.0),
-            Vec3::new(-2.0, 1.0, 5.0),
-            Vec3::new(-2.0, 1.0, 0.1)
+            Vec3::new(2.0, 0.707, 0.1),
+            Vec3::new(2.0, 0.707, 5.0),
+            Vec3::new(-2.0, 0.707, 5.0),
+            Vec3::new(-2.0, 0.707, 0.1)
         ],
-        faces: vec![
-            Face {
-                vertices: (0, 1, 2),
-                normal: Vec3::new(1.0, 1.0, -1.0).normalize(),
-                color: 255.0
-            },
-            Face {
-                vertices: (0, 2, 3),
-                normal: Vec3::new(-1.0, 1.0, -1.0).normalize(),
-                color: 255.0
-            },
-            Face {
-                vertices: (4, 5, 6),
-                normal: Vec3::new(0.0, -1.0, 0.0),
-                color: 255.0
-            },
-            Face {
-                vertices: (4, 7, 6),
-                normal: Vec3::new(0.0, -1.0, 0.0),
-                color: 255.0
-            }
-        ],
+        faces: vec![],
         lights: vec![
             Light {
                 pos: Vec3::new(0.0, 0.0, 0.0),
-                intensity: 15.0
+                intensity: 1.0
             },
             Light {
                 pos: Vec3::ZERO,
-                intensity: 3.0
+                intensity:  0.2
             }
         ]
     };
+    new_face_from_index(&mut scene, (0, 1, 2), 255.0);
+    new_face_from_index(&mut scene, (0, 2, 3), 255.0);
+    new_face_from_index(&mut scene, (4, 5, 6), 255.0);
+    new_face_from_index(&mut scene, (4, 6, 7), 255.0);
 
     stdout.flush()?;
 
@@ -136,27 +77,16 @@ fn main() -> Result<()> {
 
     let mut last_frame = Instant::now();
 
-    let mut time = 0.0_f32;
     loop {
-        time += 0.01;
-
-        // scene.lights[0].pos.x = time.cos();
-        // scene.lights[0].pos.y = time.sin() - 1.0;
-        // scene.camera.pos.x = time/10.0;
-        // scene.camera.yaw = time;
-
         let now = Instant::now();
         let dt = now.duration_since(last_frame);
 
-        (prev_cols, prev_rows) = (cols, rows);
         (cols, rows) = get_screen_size()?;
 
         if cols == 0 || rows == 0 {
             continue;
         }
 
-        let cam_forward = (scene.camera.rotation() * Vec3::Z).with_y(0.0);
-        let cam_right = (scene.camera.rotation() * Vec3::X).with_y(0.0);
         let cam_forward = scene.camera.forward();
         let cam_right = scene.camera.right();
         let cam_up = -Vec3::Y;
@@ -164,10 +94,10 @@ fn main() -> Result<()> {
             if let Event::Key(KeyEvent { code, .. }) = read()? {
                 match code {
                     KeyCode::Esc => break,
-                    KeyCode::Char('w') => scene.camera.pos += cam_forward * 0.05,
-                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * 0.05,
-                    KeyCode::Char('d') => scene.camera.pos += cam_right * 0.05,
-                    KeyCode::Char('a') => scene.camera.pos -= cam_right * 0.05,
+                    KeyCode::Char('w') => scene.camera.pos += cam_forward * 0.02,
+                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * 0.02,
+                    KeyCode::Char('d') => scene.camera.pos += cam_right * 0.02,
+                    KeyCode::Char('a') => scene.camera.pos -= cam_right * 0.02,
                     KeyCode::Char(' ') => scene.camera.pos += cam_up * 0.05,
                     KeyCode::Char('v') => scene.camera.pos -= cam_up * 0.05,
                     KeyCode::Modifier(ModifierKeyCode::LeftControl) => scene.camera.pos -= cam_up * 0.05,
@@ -175,37 +105,21 @@ fn main() -> Result<()> {
                     KeyCode::Char('q') => scene.camera.yaw += 0.02,
                     KeyCode::Char('r') => scene.camera.pitch -= 0.02,
                     KeyCode::Char('f') => scene.camera.pitch += 0.02,
+                    KeyCode::Char('g') => scene.camera.roll -= 0.02,
+                    KeyCode::Char('t') => scene.camera.roll += 0.02,
+                    KeyCode::Char('y') => scene.camera.fov += 0.02,
+                    KeyCode::Char('h') => scene.camera.fov -= 0.02,
                     _ => {}
                 }
             }
         }
         scene.lights[1].pos = scene.camera.pos;
 
-        execute!(
-            stdout,
-            MoveTo(0, 0),
-            Print(scene.camera.pos)
-        ).unwrap();
-
         grid.resize(cols, rows, (0, 0), BrailleCharUnOrdered::EMPTY);
         img.clear();
-        // img.resize(cols * rows * 8, Vec3::ZERO);
         img.resize(cols * 2, rows * 4);
 
         // render
-        // for y in 0..(rows*4) {
-        //     for x in 0..(cols*2) {
-        //         let d2 = ((x as isize - cols as isize)).pow(2) / (cols as isize / 4).max(1) + ((y as isize - rows as isize * 2)).pow(2) / (rows as isize / 2).max(1);
-        //         let l = 255.0 - ((d2 * 2) as f32 * (1.0 - 0.8 * (1.0 - time.cos().abs())) ).min(255.0);
-        //         img.array[x + y * cols * 2] = l;
-        //     }
-        // }
-        // for _ in 0..10 {
-        //     let x = rng.random_range(0..(cols*2));
-        //     let y = rng.random_range(0..(rows*4));
-        //     img.draw_circle(x, y, 10, 255.0);
-        // }
-
         scene.render(&mut img);
 
         // dithering
@@ -254,7 +168,7 @@ fn main() -> Result<()> {
         let ms = dt.as_secs_f64() * 1000.0;
         let fps = 1.0 / dt.as_secs_f64();
 
-        let info = format!("{:.2} ms | {:.0} FPS", ms, fps);
+        let info = format!("{:>5.2} ms | {:>3.0} FPS", ms, fps);
 
         let w = info.len();
         let mx = cols.saturating_sub(w);

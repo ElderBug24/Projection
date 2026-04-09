@@ -1,10 +1,6 @@
-use braille::{BrailleCharGridVector, BrailleCharTrait};
-
 use std::ops::{Add, Mul};
 
-use glam::{Vec3, Vec2, USizeVec2, Quat, EulerRot};
-use std::io::{stdout, Write};
-use crossterm::{execute, cursor::MoveTo, style::Print};
+use glam::{Vec3, Quat};
 
 
 pub const NEAR: f32 = 0.1;
@@ -25,6 +21,8 @@ impl Scene3D {
         let height = canva.height();
         let sx = width as f32 / 2.0;
         let sy = height as f32 / 2.0;
+        let fov = (self.camera.fov * 0.5).tan().recip();
+        let aspect = width as f32 / height as f32;
         let camera_rotation = self.camera.rotation();
         let camera_pos = self.camera.pos;
         let lights: Vec<Light> = self.lights.iter()
@@ -33,12 +31,26 @@ impl Scene3D {
             intensity: *intensity
         })
         .collect();
-        let mut faces: Vec<FaceOwned> = Vec::with_capacity(self.faces.len()); // faceowned has vertices in camera space and inside all the faces are (culled?) .. they are not behind the camera at least
+        let mut faces: Vec<FaceOwned> = Vec::with_capacity(self.faces.len()); // faceowned has vertices in camera space and inside all the faces are (culled? YES) .. they are not behind the camera at least
 
         for face in self.faces.iter() {
-            let a = camera_rotation * (self.vertices[face.vertices.0] - camera_pos);
-            let b = camera_rotation * (self.vertices[face.vertices.1] - camera_pos);
-            let c = camera_rotation * (self.vertices[face.vertices.2] - camera_pos);
+            let a = self.vertices[face.vertices.0];
+            let b = self.vertices[face.vertices.1];
+            let c = self.vertices[face.vertices.2];
+
+            let centroid = (a + b + c) / 3.0;
+
+            if face.normal.dot(centroid - camera_pos) >= 0.0 {
+                continue;
+            }
+
+            let a = camera_rotation * (a - camera_pos);
+            let b = camera_rotation * (b - camera_pos);
+            let c = camera_rotation * (c - camera_pos);
+
+            if a.z.min(b.z).min(c.z) > FAR {
+                continue
+            }
 
             let (a_, b_, c_) = (a.z <= NEAR, b.z <= NEAR, c.z <= NEAR);
             match a_ as u8 + b_ as u8 + c_ as u8 {
@@ -50,18 +62,18 @@ impl Scene3D {
                     }
                 ),
                 1 => {
-                    let (az, bz, cz) = match (a_, b_, c_) {
-                        (true, false, false) => (b.z, c.z, a.z),
-                        (false, true, false) => (c.z, a.z, b.z),
-                        (false, false, true) => (a.z, b.z, c.z),
+                    let (a, b, c) = match (a_, b_, c_) {
+                        (true, false, false) => (b, c, a),
+                        (false, true, false) => (c, a, b),
+                        (false, false, true) => (a, b, c),
                         _ => unreachable!()
                     };
 
-                    let i = (NEAR - az) / (cz - az);
-                    let j = (NEAR - bz) / (cz - bz);
+                    let i = (NEAR - a.z) / (c.z - a.z);
+                    let j = (NEAR - b.z) / (c.z - b.z);
 
                     let ac = c - a;
-                    let bc = b - a;
+                    let bc = c - b;
 
                     let u = a + i * ac;
                     let v = b + j * bc;
@@ -83,15 +95,15 @@ impl Scene3D {
                     );
                 },
                 2 => {
-                    let (az, bz, cz) = match (a_, b_, c_) {
-                        (false, true, true) => (a.z, b.z, c.z),
-                        (true, false, true) => (b.z, c.z, a.z),
-                        (true, true, false) => (c.z, a.z, b.z),
+                    let (a, b, c) = match (a_, b_, c_) {
+                        (false, true, true) => (a, b, c),
+                        (true, false, true) => (b, c, a),
+                        (true, true, false) => (c, a, b),
                         _ => unreachable!()
                     };
 
-                    let i = (NEAR - az) / (bz - az);
-                    let j = (NEAR - az) / (cz - az);
+                    let i = (NEAR - a.z) / (b.z - a.z);
+                    let j = (NEAR - a.z) / (c.z - a.z);
 
                     let ac = c - a;
                     let ab = b - a;
@@ -112,43 +124,16 @@ impl Scene3D {
             }
         }
 
-        for (face_index, face) in self.faces.iter().enumerate() {
-            // execute!(
-            //     stdout(),
-            //     MoveTo(0, 0),
-            //     Print(face.normal.dot(forward)),
-            //     MoveTo(0, 1),
-            //     Print(forward),
-            //     MoveTo(0, 2),
-            //     Print(face.normal)
-            // );
-            // if (camera_rotation * face.normal).dot(camera_rotation * (self.vertices[face.vertices.0] - camera_pos)) >= 0.0 {
-            //     continue;
-            // }
-            // if face.normal.dot(self.vertices[face.vertices.0] - camera_pos) >= 0.0 {
-            //     continue;
-            // }
+        for (face_index, face) in faces.iter().enumerate() {
+            let (a, b, c) = face.vertices;
 
-            let a = camera_rotation * (self.vertices[face.vertices.0] - camera_pos);
-            let b = camera_rotation * (self.vertices[face.vertices.1] - camera_pos);
-            let c = camera_rotation * (self.vertices[face.vertices.2] - camera_pos);
+            let (x0, y0, z0) = (a.x / a.z * fov / aspect * sx + sx, a.y / a.z * fov * sy + sy, (a.z - NEAR) / (FAR - NEAR));
+            let (x1, y1, z1) = (b.x / b.z * fov / aspect * sx + sx, b.y / b.z * fov * sy + sy, (b.z - NEAR) / (FAR - NEAR));
+            let (x2, y2, z2) = (c.x / c.z * fov / aspect * sx + sx, c.y / c.z * fov * sy + sy, (c.z - NEAR) / (FAR - NEAR));
 
-            let t_min = a.z.min(b.z).min(c.z);
-            // let t_max = a.z.max(b.z).max(c.z);
-            if t_min > FAR || a.z <= NEAR || b.z <= NEAR || c.z <= NEAR {
-                continue;
-            }
-            let a_proj = (a.x / a.z * sx + sx, a.y / a.z * sy + sy, (a.z - NEAR) / (FAR - NEAR));
-            let b_proj = (b.x / b.z * sx + sx, b.y / b.z * sy + sy, (b.z - NEAR) / (FAR - NEAR));
-            let c_proj = (c.x / c.z * sx + sx, c.y / c.z * sy + sy, (c.z - NEAR) / (FAR - NEAR));
-
-            let (x0, y0, z0) = a_proj;
-            let (x1, y1, z1) = b_proj;
-            let (x2, y2, z2) = c_proj;
-
-            canva.draw_circle(x0 as usize, y0 as usize, 3, 255.0);
-            canva.draw_circle(x1 as usize, y1 as usize, 3, 255.0);
-            canva.draw_circle(x2 as usize, y2 as usize, 3, 255.0);
+            // canva.draw_circle(x0 as usize, y0 as usize, 3, 255.0);
+            // canva.draw_circle(x1 as usize, y1 as usize, 3, 255.0);
+            // canva.draw_circle(x2 as usize, y2 as usize, 3, 255.0);
 
             let xmin = (x0.min(x1).min(x2).floor() as i32).clamp(0, width as i32 - 1);
             let xmax = (x0.max(x1).max(x2).ceil() as i32).clamp(0, width as i32 - 1);
@@ -182,21 +167,17 @@ impl Scene3D {
 
         for y in 0..height {
             for x in 0..width {
-                let (face_index, z_pixel, (alpha, beta, gamma)) = buffer[x + y * width];
+                let (face_index, _z_pixel, (alpha, beta, gamma)) = buffer[x + y * width];
                 if face_index == 0 {
                     continue;
                 }
 
-                let face = self.faces[face_index-1];
+                let face = faces[face_index-1];
                 let (a, b, c) = face.vertices;
-                let (a, b, c) = (self.vertices[a], self.vertices[b], self.vertices[c]);
-                let a = camera_rotation * (a - camera_pos);
-                let b = camera_rotation * (b - camera_pos);
-                let c = camera_rotation * (c - camera_pos);
 
                 let pos = alpha * a + beta * b + gamma * c;
                 let color = face.color;
-                let normal = camera_rotation * face.normal;
+                let normal = face.normal;
 
                 let mut light_sum = 0.0;
                 for light in &lights {
@@ -246,25 +227,37 @@ pub fn new_face(scene: &mut Scene3D, vertices: (Vec3, Vec3, Vec3), color: f32) {
     );
 }
 
+pub fn new_face_from_index(scene: &mut Scene3D, vertices: (usize, usize, usize), color: f32) {
+    let (a, b, c) = vertices;
+    let va = scene.vertices[a];
+    let vb = scene.vertices[b];
+    let vc = scene.vertices[c];
+    let normal = (vb - va).cross(vc - va);
+
+    scene.faces.push(
+        Face {
+            vertices: (a, b, c),
+            normal: normal,
+            color: color
+        }
+    );
+}
+
 pub struct Camera {
     pub pos: Vec3,
     pub yaw: f32,
     pub pitch: f32,
-    pub roll: f32
+    pub roll: f32,
+    pub fov: f32
 }
 
 impl Camera {
-    pub fn new() -> Self {
-        return Self {
-            pos: Vec3::ZERO,
-            yaw: 0.0,
-            pitch: 0.0,
-            roll: 0.0
-        };
-    }
-
     pub fn rotation(&self) -> Quat {
-        return Quat::from_rotation_x(self.pitch) * Quat::from_rotation_y(self.yaw);
+        let pitch = Quat::from_rotation_x(self.pitch);
+        let yaw = Quat::from_rotation_y(self.yaw);
+        let roll = Quat::from_rotation_z(self.roll);
+
+        return roll * pitch * yaw;
     }
 
     pub fn forward(&self) -> Vec3 {
@@ -274,6 +267,18 @@ impl Camera {
     pub fn right(&self) -> Vec3 {
         let forward = self.forward();
         return Vec3::new(forward.z, 0.0, -forward.x);
+    }
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        return Self {
+            pos: Vec3::ZERO,
+            yaw: 0.0,
+            pitch: 0.0,
+            roll: 0.0,
+            fov: std::f32::consts::FRAC_PI_2
+        };
     }
 }
 
