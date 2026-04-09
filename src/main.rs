@@ -15,7 +15,8 @@ use crossterm::{
     style::Print,
     event::{Event, KeyEvent, KeyCode, ModifierKeyCode, read, poll}
 };
-use glam::Vec3;
+use glam::{Vec3, Vec2};
+use image;
 
 fn get_screen_size() -> Result<(usize, usize)> {
     let (w, h) = size()?;
@@ -48,27 +49,34 @@ fn main() -> Result<()> {
             Vec3::new(0.707, 0.707, 1.707),
             Vec3::new(0.0, -0.707, 1.707),
             Vec3::new(-0.707, 0.707, 1.707),
-            Vec3::new(2.0, 0.707, 0.1),
+            Vec3::new(2.0, 0.707, 0.1), // 4
             Vec3::new(2.0, 0.707, 5.0),
             Vec3::new(-2.0, 0.707, 5.0),
             Vec3::new(-2.0, 0.707, 0.1)
+        ],
+        uv: vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(1.0, 1.0),
         ],
         faces: vec![],
         lights: vec![
             Light {
                 pos: Vec3::new(0.0, 0.0, 0.0),
-                intensity: 1.0
+                intensity: 3.0
             },
             Light {
                 pos: Vec3::ZERO,
                 intensity:  0.2
             }
-        ]
+        ],
+        textures: vec![image::open("./cat.jpg").unwrap().grayscale().into_luma8()]
     };
-    new_face_from_index(&mut scene, (0, 1, 2), 255.0);
-    new_face_from_index(&mut scene, (0, 2, 3), 255.0);
-    new_face_from_index(&mut scene, (4, 5, 6), 255.0);
-    new_face_from_index(&mut scene, (4, 6, 7), 255.0);
+    // new_face_from_index(&mut scene, (0, 1, 2), 0, (0, 0, 0));
+    // new_face_from_index(&mut scene, (0, 2, 3), 0, (0, 0, 0));
+    new_face_from_index(&mut scene, (4, 5, 6), 0, (3, 1, 0));
+    new_face_from_index(&mut scene, (4, 6, 7), 0, (3, 0, 2));
 
     stdout.flush()?;
 
