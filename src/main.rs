@@ -68,13 +68,13 @@ fn main() -> Result<()> {
             },
             Light {
                 pos: Vec3::ZERO,
-                intensity:  0.2
+                intensity:  0.0
             }
         ],
-        textures: vec![image::open("./cat.jpg").unwrap().grayscale().into_luma8()]
+        textures: vec![image::open("./bunny.jpg").unwrap().into_luma8()]
     };
-    // new_face_from_index(&mut scene, (0, 1, 2), 0, (0, 0, 0));
-    // new_face_from_index(&mut scene, (0, 2, 3), 0, (0, 0, 0));
+    // new_face_from_index(&mut scene, (0, 1, 2), 0, (3, 3, 3));
+    // new_face_from_index(&mut scene, (0, 2, 3), 0, (3, 3, 3));
     new_face_from_index(&mut scene, (4, 5, 6), 0, (3, 1, 0));
     new_face_from_index(&mut scene, (4, 6, 7), 0, (3, 0, 2));
 

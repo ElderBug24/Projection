@@ -159,7 +159,7 @@ impl Scene3D {
             }
         }
 
-        for (face_index, face) in faces.iter_mut().enumerate() {
+        for (face_index, face) in faces.iter().enumerate() {
             let (a, b, c) = face.vertices;
             let (uv_a, uv_b, uv_c) = face.uv;
 
@@ -197,16 +197,14 @@ impl Scene3D {
                     let beta  = ((y2 - y0) * (x as f32 - x2) + (x0 - x2) * (y as f32 - y2)) * denom_recip;
                     let gamma = 1.0 - alpha - beta;
 
-                    let w = alpha * w_a + beta * w_b + gamma * w_c;
-
-                    let texture = &self.textures[face.texture_id];
-                    let uv = (alpha * uv_a + beta * uv_b + gamma * uv_c) / w;
-                    let u = uv.x.clamp(0.0, 0.999999);
-                    let v = uv.y.clamp(0.0, 0.999999);
-                    let (u, v) = ((u * texture.width() as f32) as u32, (v * texture.height() as f32) as u32);
-                    let color = texture.get_pixel(u, v).0[0] as f32;
-
                     if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
+                        let texture = &self.textures[face.texture_id];
+
+                        let w = alpha * w_a + beta * w_b + gamma * w_c;
+                        let uv = ((alpha * uv_a + beta * uv_b + gamma * uv_c) / w);
+                        let (u, v) = ((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32);
+                        let color = texture.get_pixel_checked(u, v).map(|p| p[0] as f32).unwrap_or(0.0); // default color when out of image bounds
+
                         let z_pixel = alpha * z0 + beta * z1 + gamma * z2;
 
                         let index = x as usize + y as usize * width;
@@ -237,9 +235,10 @@ impl Scene3D {
 
                     light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
                 }
-                let result = color * light_sum;
-                // let result = color;
+
                 // let result = 255.0;
+                let result = color;
+                // let result = color * light_sum;
 
                 canva.array[x + y * width] = result;
             }
