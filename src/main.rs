@@ -7,13 +7,15 @@ use braille::{BrailleCharUnOrdered, BrailleCharGridVector};
 use std::io::{stdout, Write, Result};
 use std::time::{Duration, Instant};
 use std::ops::{Add, Mul};
+use std::fmt::Write as Write_;
 
 use crossterm::{
     execute,
+    queue,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, DisableLineWrap, Clear, ClearType, size, enable_raw_mode},
     cursor::{MoveTo, Hide},
     style::Print,
-    event::{Event, KeyEvent, KeyCode, ModifierKeyCode, read, poll}
+    event::{Event, KeyEvent, KeyCode, read, poll}
 };
 use glam::{Vec3, Vec2};
 use image;
@@ -30,18 +32,12 @@ fn index<N: Add<Output = N> + Mul<Output = N>>(x: N, y: N, width: N) -> N {
 }
 
 fn main() -> Result<()> {
+    let mut display_color = false;
     let mut stdout = stdout();
 
     let (mut cols, mut rows) = get_screen_size()?;
-
-    execute!(stdout, EnterAlternateScreen)?;
-    execute!(stdout, Clear(ClearType::All))?;
-    execute!(stdout, DisableLineWrap)?;
-
     let mut grid: BrailleCharGridVector<BrailleCharUnOrdered> = BrailleCharGridVector::new(cols, rows);
-
-    let mut img = Canva::new(cols * 2, rows * 4);
-
+    let mut canva = Canva::new(cols * 2, rows * 4);
     let mut scene = Scene3D {
         camera: Camera::default(),
         vertices: vec![
@@ -49,10 +45,10 @@ fn main() -> Result<()> {
             Vec3::new(0.707, 0.707, 1.707),
             Vec3::new(0.0, -0.707, 1.707),
             Vec3::new(-0.707, 0.707, 1.707),
-            Vec3::new(2.0, 0.707, 0.1), // 4
-            Vec3::new(2.0, 0.707, 5.0),
-            Vec3::new(-2.0, 0.707, 5.0),
-            Vec3::new(-2.0, 0.707, 0.1)
+            Vec3::new(2.0, -1.0, 0.1), // 4
+            Vec3::new(2.0, -1.0, 5.0),
+            Vec3::new(-2.0, -1.0, 5.0),
+            Vec3::new(-2.0, -1.0, 0.1)
         ],
         uv: vec![
             Vec2::new(0.0, 0.0),
@@ -63,7 +59,7 @@ fn main() -> Result<()> {
         faces: vec![],
         lights: vec![
             Light {
-                pos: Vec3::new(0.0, 0.0, 0.0),
+                pos: Vec3::ZERO,
                 intensity: 3.0
             },
             Light {
@@ -71,19 +67,24 @@ fn main() -> Result<()> {
                 intensity:  0.0
             }
         ],
-        textures: vec![image::open("./bunny.jpg").unwrap().into_luma8()]
+        textures: vec![
+            image::open("./bunny.jpg").unwrap().into_rgb8()
+        ]
     };
     // new_face_from_index(&mut scene, (0, 1, 2), 0, (3, 3, 3));
     // new_face_from_index(&mut scene, (0, 2, 3), 0, (3, 3, 3));
     new_face_from_index(&mut scene, (4, 5, 6), 0, (3, 1, 0));
     new_face_from_index(&mut scene, (4, 6, 7), 0, (3, 0, 2));
 
+    queue!(stdout, EnterAlternateScreen)?;
+    queue!(stdout, Clear(ClearType::All))?;
+    execute!(stdout, DisableLineWrap)?;
+    queue!(stdout, Hide)?;
+    enable_raw_mode()?;
     stdout.flush()?;
 
-    enable_raw_mode()?;
-    execute!(stdout, Hide)?;
-
     let mut last_frame = Instant::now();
+    let mut line_buf = String::new();
 
     loop {
         let now = Instant::now();
@@ -97,26 +98,27 @@ fn main() -> Result<()> {
 
         let cam_forward = scene.camera.forward();
         let cam_right = scene.camera.right();
-        let cam_up = -Vec3::Y;
-        if poll(Duration::from_millis(5))? {
+        let cam_up = Vec3::Y;
+        if poll(Duration::ZERO)? {
             if let Event::Key(KeyEvent { code, .. }) = read()? {
                 match code {
                     KeyCode::Esc => break,
-                    KeyCode::Char('w') => scene.camera.pos += cam_forward * 0.02,
-                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * 0.02,
-                    KeyCode::Char('d') => scene.camera.pos += cam_right * 0.02,
-                    KeyCode::Char('a') => scene.camera.pos -= cam_right * 0.02,
-                    KeyCode::Char(' ') => scene.camera.pos += cam_up * 0.05,
-                    KeyCode::Char('v') => scene.camera.pos -= cam_up * 0.05,
-                    KeyCode::Modifier(ModifierKeyCode::LeftControl) => scene.camera.pos -= cam_up * 0.05,
-                    KeyCode::Char('e') => scene.camera.yaw -= 0.02,
-                    KeyCode::Char('q') => scene.camera.yaw += 0.02,
-                    KeyCode::Char('r') => scene.camera.pitch -= 0.02,
-                    KeyCode::Char('f') => scene.camera.pitch += 0.02,
-                    KeyCode::Char('g') => scene.camera.roll -= 0.02,
-                    KeyCode::Char('t') => scene.camera.roll += 0.02,
-                    KeyCode::Char('y') => scene.camera.fov += 0.02,
-                    KeyCode::Char('h') => scene.camera.fov -= 0.02,
+                    KeyCode::Char('w') => scene.camera.pos += cam_forward * 0.05, // forward
+                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * 0.05, // backward
+                    KeyCode::Char('d') => scene.camera.pos += cam_right * 0.05,   // right
+                    KeyCode::Char('a') => scene.camera.pos -= cam_right * 0.05,   // left
+                    KeyCode::Char(' ') => scene.camera.pos += cam_up * 0.05,      // up
+                    KeyCode::Char('v') => scene.camera.pos -= cam_up * 0.05,      // down
+                    KeyCode::Char('e') => scene.camera.yaw -= 0.03,
+                    KeyCode::Char('q') => scene.camera.yaw += 0.03,
+                    KeyCode::Char('r') => scene.camera.pitch += 0.03,
+                    KeyCode::Char('f') => scene.camera.pitch -= 0.03,
+                    KeyCode::Char('g') => scene.camera.roll += 0.03,
+                    KeyCode::Char('t') => scene.camera.roll -= 0.03,
+                    KeyCode::Char('y') => scene.camera.fov += 0.03,
+                    KeyCode::Char('h') => scene.camera.fov -= 0.03,
+                    KeyCode::Char('x') => display_color = false,
+                    KeyCode::Char('c') => display_color = true,
                     _ => {}
                 }
             }
@@ -124,18 +126,18 @@ fn main() -> Result<()> {
         scene.lights[1].pos = scene.camera.pos;
 
         grid.resize(cols, rows, (0, 0), BrailleCharUnOrdered::EMPTY);
-        img.clear();
-        img.resize(cols * 2, rows * 4);
+        canva.clear();
+        canva.resize(cols * 2, rows * 4);
 
         // render
-        scene.render(&mut img);
+        scene.render(&mut canva);
 
         // dithering
         for y in 0..(rows*4) {
             for x in 0..(cols*2) {
-                let oldpixel = img.array[index(x, y, cols * 2)].clamp(0.0, 255.0);
-                let (b, nl) = match oldpixel {
-                    0.0..127.0 => (false, 0.0),
+                let oldpixel = canva.array[index(x, y, cols * 2)].clamp(Vec3::ZERO, Vec3::splat(255.0));
+                let (b, nl) = match oldpixel.element_sum() {
+                    0.0..381.0 => (false, 0.0),
                     _ => (true, 255.0)
                 };
                 let newpixel = nl;
@@ -153,21 +155,21 @@ fn main() -> Result<()> {
                 let down2 = y + 2 < rows * 4;
 
                 if right {
-                    img.array[index(x+1, y, cols * 2)] += quant_error;
+                    canva.array[index(x+1, y, cols * 2)] += quant_error;
                     if right2 {
-                        img.array[index(x+2, y, cols * 2)] += quant_error;
+                        canva.array[index(x+2, y, cols * 2)] += quant_error;
                     }
                     if down {
-                        img.array[index(x+1, y+1, cols * 2)] += quant_error;
+                        canva.array[index(x+1, y+1, cols * 2)] += quant_error;
                     }
                 }
                 if down {
-                    img.array[index(x, y+1, cols * 2)] += quant_error;
+                    canva.array[index(x, y+1, cols * 2)] += quant_error;
                     if left {
-                        img.array[index(x-1, y+1, cols * 2)] += quant_error;
+                        canva.array[index(x-1, y+1, cols * 2)] += quant_error;
                     }
                     if down2 {
-                        img.array[index(x, y+2, cols * 2)] += quant_error;
+                        canva.array[index(x, y+2, cols * 2)] += quant_error;
                     }
                 }
             }
@@ -179,94 +181,187 @@ fn main() -> Result<()> {
         let info = format!("{:>5.2} ms | {:>3.0} FPS", ms, fps);
 
         let w = info.len();
-        let mx = cols.saturating_sub(w);
+        // let offset = (cols - w) / 2;
+        let offset = 0;
+        let mx = cols.saturating_sub(w+offset);
 
+        queue!(
+            stdout,
+            MoveTo(0, 0),
+            Print("\x1b[39m")
+        ).unwrap();
+
+        line_buf.reserve_exact(cols as usize);
         if rows > 1 { // line 0
-            let mut line = String::with_capacity(cols as usize);
+            line_buf.clear();
+            let mut x = 0;
 
-            for x in 0..mx.saturating_sub(3) {
-                line.push(grid[(x as usize, 0)].char());
+            for _ in 0..mx.saturating_sub(3) {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 0).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push(grid[(x as usize, 0)].char());
+                x += 1;
             }
-            let mut char = grid[(mx.saturating_sub(3), 0)];
-            char &= 0b_1111_1110;
-            line.push(char.char());
-            for x in mx.saturating_sub(2)..(cols-2) {
-                let mut char = grid[(x, 0)];
-                char &= 0b_1111_1100;
-                line.push(char.char());
+            if display_color {
+                let [r, g, b] = canva.average_color(x, 0).to_array();
+                let (r, g, b) = (r as u8, g as u8, b as u8);
+                write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
-            let mut char = grid[(cols-1, 0)];
-            char &= 0b_1111_1101;
-            line.push(char.char());
-            line.push(grid[(cols, 0)].char());
+            line_buf.push((grid[(x, 0)] & 0b_1111_1110).char());
+            x += 1;
+            for _ in 0..w {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 0).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push((grid[(x, 0)] & 0b_1111_1100).char());
+                x += 1;
+            }
+            if display_color {
+                let [r, g, b] = canva.average_color(x, 0).to_array();
+                let (r, g, b) = (r as u8, g as u8, b as u8);
+                write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+            }
+            line_buf.push((grid[(x, 0)] & 0b_1111_1101).char());
+            x += 1;
+            while x < cols {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 0).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push(grid[(x, 0)].char());
+                x += 1;
+            }
 
-            execute!(
+            queue!(
                 stdout,
                 MoveTo(0, 0),
-                Print(&line)
+                Print(&line_buf)
             )?;
         }
 
         if rows > 2 { // line 1
-            let mut line = String::with_capacity(cols as usize);
+            line_buf.clear();
+            let mut x = 0;
 
-            for x in 0..mx.saturating_sub(3) {
-                line.push(grid[(x as usize, 1)].char());
+            for _ in 0..mx.saturating_sub(3) {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 1).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push(grid[(x as usize, 1)].char());
+                x += 1;
             }
-            let mut char = grid[(mx.saturating_sub(3), 1)];
-            char &= 0b_1010_1010;
-            line.push(char.char());
-            line.push_str(&info);
-            let mut char = grid[(cols-1, 1)];
-            char &= 0b_0101_0101;
-            line.push(char.char());
-            line.push(grid[(cols, 1)].char());
+            if display_color {
+                let [r, g, b] = canva.average_color(x, 1).to_array();
+                let (r, g, b) = (r as u8, g as u8, b as u8);
+                write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+            }
+            line_buf.push((grid[(x, 1)] & 0b_1010_1010).char());
+            x += 1;
+            if display_color { line_buf.push_str("\x1b[0m"); }
+            line_buf.push_str(&info);
+            x += w;
+            if display_color {
+                let [r, g, b] = canva.average_color(x, 1).to_array();
+                let (r, g, b) = (r as u8, g as u8, b as u8);
+                write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+            }
+            line_buf.push((grid[(cols-1, 1)] & 0b_0101_0101).char());
+            x += 1;
+            while x < cols {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 1).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push(grid[(x, 1)].char());
+                x += 1;
+            }
 
-            execute!(
+            queue!(
                 stdout,
                 MoveTo(0, 1),
-                Print(&line)
+                Print(&line_buf)
             )?;
         }
 
         if rows > 3 { // line 2
-            let mut line = String::with_capacity(cols as usize);
+            line_buf.clear();
+            let mut x = 0;
 
-            for x in 0..mx.saturating_sub(3) {
-                line.push(grid[(x as usize, 2)].char());
+            for _ in 0..mx.saturating_sub(3) {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 2).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push(grid[(x as usize, 2)].char());
+                x += 1;
             }
-            let mut char = grid[(mx.saturating_sub(3), 2)];
-            char &= 0b_1011_1111;
-            line.push(char.char());
-            for x in mx.saturating_sub(2)..(cols-2) {
-                let mut char = grid[(x, 2)];
-                char &= 0b_0011_1111;
-                line.push(char.char());
+            if display_color {
+                let [r, g, b] = canva.average_color(x, 2).to_array();
+                let (r, g, b) = (r as u8, g as u8, b as u8);
+                write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
-            let mut char = grid[(cols-1, 2)];
-            char &= 0b_0111_1111;
-            line.push(char.char());
-            line.push(grid[(cols, 2)].char());
+            line_buf.push((grid[(mx.saturating_sub(3), 2)] & 0b_1011_1111).char());
+            x += 1;
+            for _ in 0..w {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 2).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push((grid[(x, 2)] & 0b_0011_1111).char());
+                x += 1;
+            }
+            if display_color {
+                let [r, g, b] = canva.average_color(x, 2).to_array();
+                let (r, g, b) = (r as u8, g as u8, b as u8);
+                write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+            }
+            line_buf.push((grid[(x, 2)] & 0b_0111_1111).char());
+            x += 1;
+            while x < cols {
+                if display_color {
+                    let [r, g, b] = canva.average_color(x, 2).to_array();
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                }
+                line_buf.push(grid[(x, 2)].char());
+                x += 1;
+            }
 
-            execute!(
+            queue!(
                 stdout,
                 MoveTo(0, 2),
-                Print(&line)
+                Print(&line_buf)
             )?;
         }
 
         if rows > 3 {
             for y in 3..rows {
-                let mut line = String::with_capacity(cols as usize);
+                line_buf.clear();
 
                 for x in 0..cols {
-                    line.push(grid[(x as usize, y as usize)].char());
+                    if display_color {
+                        let [r, g, b] = canva.average_color(x, y).to_array();
+                        let (r, g, b) = (r as u8, g as u8, b as u8);
+                        write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
+                    }
+                    line_buf.push(grid[(x as usize, y as usize)].char());
                 }
 
-                execute!(
+                queue!(
                     stdout,
                     MoveTo(0, y as u16),
-                    Print(&line)
+                    Print(&line_buf)
                 )?;
             }
         }
