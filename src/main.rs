@@ -49,7 +49,9 @@ fn main() -> Result<()> {
                 pos: Vec3::ZERO,
                 intensity:  0.0
             }
-        ]
+        ],
+        buffered_faces: vec![],
+        buffered_textures: vec![]
     };
     let mut bunny = Model3D {
         vertices: vec![
@@ -66,11 +68,31 @@ fn main() -> Result<()> {
         ],
         normals: vec![],
         faces: vec![],
-        texture: image::open("./bunny.jpg").unwrap().into_rgb8()
+        texture: image::open("./bunny.jpg").unwrap().into_rgb8().into()
 
     };
     new_face_from_index(&mut bunny, (0, 1, 2), (3, 1, 0));
     new_face_from_index(&mut bunny, (0, 2, 3), (3, 0, 2));
+    let mut cat = Model3D {
+        vertices: vec![
+            Vec3::new(2.0, -2.0, 5.0),
+            Vec3::new(2.0, 3.0, 5.0),
+            Vec3::new(2.0, 3.0, 10.0),
+            Vec3::new(2.0, -2.0, 10.0)
+        ],
+        uv: vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(1.0, 1.0),
+        ],
+        normals: vec![],
+        faces: vec![],
+        texture: image::open("./cat.jpg").unwrap().into_rgb8().into()
+
+    };
+    new_face_from_index(&mut cat, (0, 1, 2), (3, 1, 0));
+    new_face_from_index(&mut cat, (0, 2, 3), (3, 0, 2));
 
     queue!(stdout, EnterAlternateScreen)?;
     queue!(stdout, Clear(ClearType::All))?;
@@ -126,7 +148,10 @@ fn main() -> Result<()> {
         canva.resize(cols * 2, rows * 4);
 
         // render
-        scene.render_model(&bunny, &mut canva);
+        scene.clear_queue();
+        scene.queue_render(&bunny);
+        scene.queue_render(&cat);
+        scene.render(&mut canva);
 
         // dithering
         for y in 0..(rows*4) {
