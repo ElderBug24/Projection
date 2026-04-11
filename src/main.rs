@@ -18,7 +18,7 @@ use crossterm::{
     event::{Event, KeyEvent, KeyCode, read, poll}
 };
 use glam::{Vec3, Vec2};
-use image;
+use image::{self, Rgb};
 
 fn get_screen_size() -> Result<(usize, usize)> {
     let (w, h) = size()?;
@@ -40,15 +40,23 @@ fn main() -> Result<()> {
     let mut canva = Canva::new(cols * 2, rows * 4);
     let mut scene = Scene3D {
         camera: Camera::default(),
+        lights: vec![
+            Light {
+                pos: Vec3::ZERO,
+                intensity: 30.0
+            },
+            Light {
+                pos: Vec3::ZERO,
+                intensity:  0.0
+            }
+        ]
+    };
+    let mut bunny = Model3D {
         vertices: vec![
-            Vec3::new(0.0, 0.707, 1.0),
-            Vec3::new(0.707, 0.707, 1.707),
-            Vec3::new(0.0, -0.707, 1.707),
-            Vec3::new(-0.707, 0.707, 1.707),
-            Vec3::new(2.0, -1.0, 0.1), // 4
-            Vec3::new(2.0, -1.0, 5.0),
-            Vec3::new(-2.0, -1.0, 5.0),
-            Vec3::new(-2.0, -1.0, 0.1)
+            Vec3::new(2.0, -2.0, 10.0),
+            Vec3::new(2.0, 3.0, 10.0),
+            Vec3::new(-2.0, 3.0, 10.0),
+            Vec3::new(-2.0, -2.0, 10.0)
         ],
         uv: vec![
             Vec2::new(0.0, 0.0),
@@ -56,25 +64,13 @@ fn main() -> Result<()> {
             Vec2::new(0.0, 1.0),
             Vec2::new(1.0, 1.0),
         ],
+        normals: vec![],
         faces: vec![],
-        lights: vec![
-            Light {
-                pos: Vec3::ZERO,
-                intensity: 3.0
-            },
-            Light {
-                pos: Vec3::ZERO,
-                intensity:  0.0
-            }
-        ],
-        textures: vec![
-            image::open("./bunny.jpg").unwrap().into_rgb8()
-        ]
+        texture: image::open("./bunny.jpg").unwrap().into_rgb8()
+
     };
-    // new_face_from_index(&mut scene, (0, 1, 2), 0, (3, 3, 3));
-    // new_face_from_index(&mut scene, (0, 2, 3), 0, (3, 3, 3));
-    new_face_from_index(&mut scene, (4, 5, 6), 0, (3, 1, 0));
-    new_face_from_index(&mut scene, (4, 6, 7), 0, (3, 0, 2));
+    new_face_from_index(&mut bunny, (0, 1, 2), (3, 1, 0));
+    new_face_from_index(&mut bunny, (0, 2, 3), (3, 0, 2));
 
     queue!(stdout, EnterAlternateScreen)?;
     queue!(stdout, Clear(ClearType::All))?;
@@ -130,15 +126,15 @@ fn main() -> Result<()> {
         canva.resize(cols * 2, rows * 4);
 
         // render
-        scene.render(&mut canva);
+        scene.render_model(&bunny, &mut canva);
 
         // dithering
         for y in 0..(rows*4) {
             for x in 0..(cols*2) {
-                let oldpixel = canva.array[index(x, y, cols * 2)].clamp(Vec3::ZERO, Vec3::splat(255.0));
+                let oldpixel = canva.array[index(x, y, cols * 2)].clamp(Vec3::ZERO, Vec3::ONE);
                 let (b, nl) = match oldpixel.element_sum() {
-                    0.0..381.0 => (false, 0.0),
-                    _ => (true, 255.0)
+                    0.0..1.5 => (false, 0.0),
+                    _ => (true, 1.0)
                 };
                 let newpixel = nl;
 
@@ -189,7 +185,7 @@ fn main() -> Result<()> {
             stdout,
             MoveTo(0, 0),
             Print("\x1b[39m")
-        ).unwrap();
+        )?;
 
         line_buf.reserve_exact(cols as usize);
         if rows > 1 { // line 0
@@ -198,40 +194,35 @@ fn main() -> Result<()> {
 
             for _ in 0..mx.saturating_sub(3) {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 0).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 0));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push(grid[(x as usize, 0)].char());
                 x += 1;
             }
             if display_color {
-                let [r, g, b] = canva.average_color(x, 0).to_array();
-                let (r, g, b) = (r as u8, g as u8, b as u8);
+                let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 0));
                 write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
             line_buf.push((grid[(x, 0)] & 0b_1111_1110).char());
             x += 1;
             for _ in 0..w {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 0).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 0));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push((grid[(x, 0)] & 0b_1111_1100).char());
                 x += 1;
             }
             if display_color {
-                let [r, g, b] = canva.average_color(x, 0).to_array();
-                let (r, g, b) = (r as u8, g as u8, b as u8);
+                let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 0));
                 write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
             line_buf.push((grid[(x, 0)] & 0b_1111_1101).char());
             x += 1;
             while x < cols {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 0).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 0));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push(grid[(x, 0)].char());
@@ -251,16 +242,14 @@ fn main() -> Result<()> {
 
             for _ in 0..mx.saturating_sub(3) {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 1).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 1));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push(grid[(x as usize, 1)].char());
                 x += 1;
             }
             if display_color {
-                let [r, g, b] = canva.average_color(x, 1).to_array();
-                let (r, g, b) = (r as u8, g as u8, b as u8);
+                let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 1));
                 write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
             line_buf.push((grid[(x, 1)] & 0b_1010_1010).char());
@@ -269,16 +258,14 @@ fn main() -> Result<()> {
             line_buf.push_str(&info);
             x += w;
             if display_color {
-                let [r, g, b] = canva.average_color(x, 1).to_array();
-                let (r, g, b) = (r as u8, g as u8, b as u8);
+                let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 1));
                 write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
             line_buf.push((grid[(cols-1, 1)] & 0b_0101_0101).char());
             x += 1;
             while x < cols {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 1).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 1));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push(grid[(x, 1)].char());
@@ -298,40 +285,35 @@ fn main() -> Result<()> {
 
             for _ in 0..mx.saturating_sub(3) {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 2).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 2));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push(grid[(x as usize, 2)].char());
                 x += 1;
             }
             if display_color {
-                let [r, g, b] = canva.average_color(x, 2).to_array();
-                let (r, g, b) = (r as u8, g as u8, b as u8);
+                let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 2));
                 write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
             line_buf.push((grid[(mx.saturating_sub(3), 2)] & 0b_1011_1111).char());
             x += 1;
             for _ in 0..w {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 2).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 2));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push((grid[(x, 2)] & 0b_0011_1111).char());
                 x += 1;
             }
             if display_color {
-                let [r, g, b] = canva.average_color(x, 2).to_array();
-                let (r, g, b) = (r as u8, g as u8, b as u8);
+                let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 2));
                 write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
             }
             line_buf.push((grid[(x, 2)] & 0b_0111_1111).char());
             x += 1;
             while x < cols {
                 if display_color {
-                    let [r, g, b] = canva.average_color(x, 2).to_array();
-                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, 2));
                     write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                 }
                 line_buf.push(grid[(x, 2)].char());
@@ -351,8 +333,7 @@ fn main() -> Result<()> {
 
                 for x in 0..cols {
                     if display_color {
-                        let [r, g, b] = canva.average_color(x, y).to_array();
-                        let (r, g, b) = (r as u8, g as u8, b as u8);
+                        let Rgb([r, g, b]) = vec3_to_rgb(canva.average_color(x, y));
                         write!(line_buf, "\x1b[38;2;{};{};{}m", r, g, b).unwrap();
                     }
                     line_buf.push(grid[(x as usize, y as usize)].char());

@@ -6,19 +6,38 @@ use image::{RgbImage, Rgb};
 
 pub const NEAR: f32 = 0.1;
 pub const FAR: f32 = 1000.0;
+pub const CULLING: bool = false;
 
 
 pub struct Scene3D {
     pub camera: Camera,
+    pub lights: Vec<Light>
+}
+
+pub struct Model3D {
     pub vertices: Vec<Vec3>,
     pub uv: Vec<Vec2>,
+    pub normals: Vec<Vec3>,
     pub faces: Vec<Face>,
-    pub lights: Vec<Light>,
-    pub textures: Vec<RgbImage>
+    pub texture: RgbImage
+}
+
+#[derive(Clone, Copy)]
+pub struct Face {
+    pub vertices: (usize, usize, usize),
+    pub uv: (usize, usize, usize),
+    pub normals: (usize, usize, usize)
+}
+
+#[derive(Clone, Copy)]
+pub struct FaceOwned {
+    pub vertices: (Vec3, Vec3, Vec3),
+    pub uv: (Vec2, Vec2, Vec2),
+    pub normals: (Vec3, Vec3, Vec3)
 }
 
 impl Scene3D {
-    pub fn render(&self, canva: &mut Canva) {
+    pub fn render_model(&self, model: &Model3D, canva: &mut Canva) {
         let mut buffer: Vec<(usize, f32, (f32, f32, f32))> = vec![(0, f32::INFINITY, (0.0, 0.0, 0.0)); canva.width() * canva.height()];
         let width = canva.width();
         let height = canva.height();
@@ -28,22 +47,26 @@ impl Scene3D {
         let aspect = width as f32 / height as f32;
         let camera_rotation = self.camera.rotation();
         let camera_pos = self.camera.pos;
-        // let lights: Vec<Light> = self.lights.iter()
-        //     .map(|Light { pos, intensity }| Light {
-        //         pos: camera_rotation * (pos - camera_pos),
-        //         intensity: *intensity
-        //     }).collect();
-        let mut faces: Vec<FaceOwned> = Vec::with_capacity(self.faces.len() * 2);
+        let lights: Vec<Light> = self.lights.iter()
+            .map(|Light { pos, intensity }| Light {
+                pos: camera_rotation * (pos - camera_pos),
+                intensity: *intensity
+            }).collect();
+        let mut faces: Vec<FaceOwned> = Vec::with_capacity(model.faces.len() * 2);
 
-        for face in self.faces.iter() {
-            let a = self.vertices[face.vertices.0];
-            let b = self.vertices[face.vertices.1];
-            let c = self.vertices[face.vertices.2];
+        for face in model.faces.iter() {
+            let a = model.vertices[face.vertices.0];
+            let b = model.vertices[face.vertices.1];
+            let c = model.vertices[face.vertices.2];
             let (uv_a, uv_b, uv_c) = face.uv;
+            let (n_a, n_b, n_c) = face.normals;
 
-            let centroid = (a + b + c) / 3.0;
-            if face.normal.dot(centroid - camera_pos) <= 0.0 {
-                continue;
+            if CULLING {
+                let centroid = (a + b + c) / 3.0;
+                let normal = (b - a).cross(c - a);
+                if normal.dot(centroid - camera_pos) <= 0.0 {
+                    continue;
+                }
             }
 
             let a = camera_rotation * (a - camera_pos);
@@ -57,101 +80,108 @@ impl Scene3D {
             let (a_, b_, c_) = (a.z <= NEAR, b.z <= NEAR, c.z <= NEAR);
             match a_ as u8 + b_ as u8 + c_ as u8 {
                 0 => {
-                    let uv_a = self.uv[uv_a];
-                    let uv_b = self.uv[uv_b];
-                    let uv_c = self.uv[uv_c];
+                    let uv_a = model.uv[uv_a];
+                    let uv_b = model.uv[uv_b];
+                    let uv_c = model.uv[uv_c];
+                    let n_a = camera_rotation * model.normals[n_a];
+                    let n_b = camera_rotation * model.normals[n_b];
+                    let n_c = camera_rotation * model.normals[n_c];
 
                     faces.push(
                         FaceOwned {
                             vertices: (a, b, c),
                             uv: (uv_a, uv_b, uv_c),
-                            normal: camera_rotation * face.normal,
-                            texture_id: face.texture_id
+                            normals: (n_a, n_b, n_c)
                         }
                     );
                 },
                 1 => {
-                    let ((a, b, c), (uv_a, uv_b, uv_c)) = match (a_, b_, c_) {
-                        (true, false, false) => ((b, c, a), (uv_b, uv_c, uv_a)),
-                        (false, true, false) => ((c, a, b), (uv_c, uv_a, uv_b)),
-                        (false, false, true) => ((a, b, c), (uv_a, uv_b, uv_c)),
+                    let ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)) = match (a_, b_, c_) {
+                        (true, false, false) => ((b, c, a), (uv_b, uv_c, uv_a), (n_b, n_c, n_a)),
+                        (false, true, false) => ((c, a, b), (uv_c, uv_a, uv_b), (n_c, n_a, n_b)),
+                        (false, false, true) => ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)),
                         _ => unreachable!()
                     };
 
-                    let uv_a = self.uv[uv_a];
-                    let uv_b = self.uv[uv_b];
-                    let uv_c = self.uv[uv_c];
+                    let uv_a = model.uv[uv_a];
+                    let uv_b = model.uv[uv_b];
+                    let uv_c = model.uv[uv_c];
+                    let n_a = camera_rotation * model.normals[n_a];
+                    let n_b = camera_rotation * model.normals[n_b];
+                    let n_c = camera_rotation * model.normals[n_c];
 
                     let i = (NEAR - a.z) / (c.z - a.z);
                     let j = (NEAR - b.z) / (c.z - b.z);
 
                     let ac = c - a;
                     let bc = c - b;
-
                     let uv_ac = uv_c - uv_a;
                     let uv_bc = uv_c - uv_b;
+                    let n_ac = n_c - n_a;
+                    let n_bc = n_c - n_b;
 
                     let d = a + i * ac;
                     let e = b + j * bc;
-
                     let uv_d = uv_a + i * uv_ac;
                     let uv_e = uv_b + j * uv_bc;
+                    let n_d = n_a + i * n_ac;
+                    let n_e = n_b + j * n_bc;
 
-                    let normal = camera_rotation * face.normal;
                     faces.push(
                         FaceOwned {
                             vertices: (a, b, e),
                             uv: (uv_a, uv_b, uv_e),
-                            normal: normal,
-                            texture_id: face.texture_id
+                            normals: (n_a, n_b, n_e)
                         }
                     );
                     faces.push(
                         FaceOwned {
                             vertices: (e, d, a),
                             uv: (uv_e, uv_d, uv_a),
-                            normal: normal,
-                            texture_id: face.texture_id
+                            normals: (n_e, n_d, n_a)
                         }
                     );
                 },
                 2 => {
-                    let ((a, b, c), (uv_a, uv_b, uv_c)) = match (a_, b_, c_) {
-                        (false, true, true) => ((a, b, c), (uv_a, uv_b, uv_c)),
-                        (true, false, true) => ((b, c, a), (uv_b, uv_c, uv_a)),
-                        (true, true, false) => ((c, a, b), (uv_c, uv_a, uv_b)),
+                    let ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)) = match (a_, b_, c_) {
+                        (false, true, true) => ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)),
+                        (true, false, true) => ((b, c, a), (uv_b, uv_c, uv_a), (n_b, n_c, n_a)),
+                        (true, true, false) => ((c, a, b), (uv_c, uv_a, uv_b), (n_c, n_a, n_b)),
                         _ => unreachable!()
                     };
 
-                    let uv_a = self.uv[uv_a];
-                    let uv_b = self.uv[uv_b];
-                    let uv_c = self.uv[uv_c];
+                    let uv_a = model.uv[uv_a];
+                    let uv_b = model.uv[uv_b];
+                    let uv_c = model.uv[uv_c];
+                    let n_a = camera_rotation * model.normals[n_a];
+                    let n_b = camera_rotation * model.normals[n_b];
+                    let n_c = camera_rotation * model.normals[n_c];
 
                     let i = (NEAR - a.z) / (b.z - a.z);
                     let j = (NEAR - a.z) / (c.z - a.z);
 
                     let ac = c - a;
                     let ab = b - a;
-
                     let uv_ac = uv_c - uv_a;
                     let uv_ab = uv_b - uv_a;
+                    let n_ac = n_c - n_a;
+                    let n_ab = n_b - n_a;
 
                     let d = a + j * ac;
                     let e = a + i * ab;
-
                     let uv_d = uv_a + j * uv_ac;
                     let uv_e = uv_a + i * uv_ab;
+                    let n_d = n_a + j * n_ac;
+                    let n_e = n_a + i * n_ab;
 
                     faces.push(
                         FaceOwned {
                             vertices: (a, e, d),
                             uv: (uv_a, uv_e, uv_d),
-                            normal: camera_rotation * face.normal,
-                            texture_id: face.texture_id
+                            normals: (n_a, n_e, n_d)
                         }
                     );
                 },
-                3 => {},
                 _ => unreachable!()
             }
         }
@@ -159,9 +189,9 @@ impl Scene3D {
         for (face_index, face) in faces.iter().enumerate() {
             let (a, b, c) = face.vertices;
 
-            let (x0, y0, z0) = (a.x / a.z * fov / aspect * sx + sx, - a.y / a.z * fov * sy + sy, (a.z - NEAR) / (FAR - NEAR));
-            let (x1, y1, z1) = (b.x / b.z * fov / aspect * sx + sx, - b.y / b.z * fov * sy + sy, (b.z - NEAR) / (FAR - NEAR));
-            let (x2, y2, z2) = (c.x / c.z * fov / aspect * sx + sx, - c.y / c.z * fov * sy + sy, (c.z - NEAR) / (FAR - NEAR));
+            let (x0, y0, z0) = (a.x / a.z * fov / aspect * sx + sx, a.y / a.z * fov * sy + sy, (a.z - NEAR) / (FAR - NEAR));
+            let (x1, y1, z1) = (b.x / b.z * fov / aspect * sx + sx, b.y / b.z * fov * sy + sy, (b.z - NEAR) / (FAR - NEAR));
+            let (x2, y2, z2) = (c.x / c.z * fov / aspect * sx + sx, c.y / c.z * fov * sy + sy, (c.z - NEAR) / (FAR - NEAR));
 
             // canva.draw_circle(x0 as usize, y0 as usize, 3, Vec3::splat(255.0));
             // canva.draw_circle(x1 as usize, y1 as usize, 3, Vec3::splat(255.0));
@@ -185,7 +215,7 @@ impl Scene3D {
                     if alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 {
                         let z_pixel = alpha * z0 + beta * z1 + gamma * z2;
 
-                        let index = x as usize + (height - 1 - y as usize) * width;
+                        let index = x as usize + y as usize * width;
                         if z_pixel < buffer[index].1 {
                             buffer[index] = (face_index + 1, z_pixel, (alpha, beta, gamma));
                         }
@@ -202,30 +232,32 @@ impl Scene3D {
                 }
 
                 let face = faces[face_index-1];
-                let texture = &self.textures[face.texture_id];
+                let texture = &model.texture;
                 let (a, b, c) = face.vertices;
-                let (uv_a, uv_b, uv_c) = face.uv;
                 let (w_a, w_b, w_c) = (a.z.recip(), b.z.recip(), c.z.recip());
+                let (uv_a, uv_b, uv_c) = face.uv;
+                let (n_a, n_b, n_c) = face.normals;
 
                 let w = alpha * w_a + beta * w_b + gamma * w_c;
                 let uv = (alpha * uv_a * w_a + beta * uv_b * w_b + gamma * uv_c * w_c) / w;
+                // let normal = ((alpha * n_a * w_a + beta * n_b * w_b + gamma * n_c * w_c) / w).normalize();
+                let normal = n_a;
                 let (u, v) = ((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32);
-                let color = texture.get_pixel_checked(u, v).copied().unwrap_or(Rgb([0, 0, 0]));
-                let [r, g, b] = color.0;
-                let color = Vec3::new(r as f32, g as f32, b as f32);
+                let color = rgb_to_vec3(texture.get_pixel_checked(u, v).copied().unwrap_or(Rgb([0, 0, 0])));
 
                 // let pos = alpha * a + beta * b + gamma * c;
-                // let normal = face.normal;
-                // let mut light_sum = 0.0;
-                // for light in &lights {
-                //     let l = light.pos - pos;
-                //
-                //     light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
-                // }
+                let pos = (alpha * a * w_a + beta * b * w_b + gamma * c * w_c) / w;
+                let mut light_sum = 0.0;
+                for light in &lights {
+                    let l = light.pos - pos;
 
-                // let result = 255.0;
-                let result = color;
-                // let result = color * light_sum;
+                    light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
+                }
+                let light_sum = 1.0_f32;
+
+                // let result = Vec3::ONE;
+                // let result = color;
+                let result = color * light_sum.clamp(0.0, 1.0);
 
                 canva.array[x + (height - y - 1) * width] = result;
             }
@@ -233,62 +265,52 @@ impl Scene3D {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Face {
-    pub vertices: (usize, usize, usize),
-    pub uv: (usize, usize, usize),
-    pub normal: Vec3,
-    pub texture_id: usize
-}
-
-#[derive(Clone, Copy)]
-pub struct FaceOwned {
-    pub vertices: (Vec3, Vec3, Vec3),
-    pub uv: (Vec2, Vec2, Vec2),
-    pub normal: Vec3,
-    pub texture_id: usize
-}
-
-pub fn new_face(scene: &mut Scene3D, vertices: (Vec3, Vec3, Vec3), texture_id: usize, uv: (Vec2, Vec2, Vec2)) {
+pub fn new_face(model: &mut Model3D, vertices: (Vec3, Vec3, Vec3), uv: (Vec2, Vec2, Vec2), normals: (Vec3, Vec3, Vec3)) {
     let (a, b, c) = vertices;
     let (uv_a, uv_b, uv_c) = uv;
-    let normal = (b - a).cross(c - a);
+    let (n_a, n_b, n_c) = normals;
 
-    let index = scene.vertices.len();
-    scene.vertices.reserve(3);
-    scene.vertices.push(a);
-    scene.vertices.push(b);
-    scene.vertices.push(c);
+    let index = model.vertices.len();
+    model.vertices.reserve(3);
+    model.vertices.push(a);
+    model.vertices.push(b);
+    model.vertices.push(c);
 
-    let index_uv = scene.uv.len();
-    scene.uv.reserve(3);
-    scene.uv.push(uv_a);
-    scene.uv.push(uv_b);
-    scene.uv.push(uv_c);
+    let index_uv = model.uv.len();
+    model.uv.reserve(3);
+    model.uv.push(uv_a);
+    model.uv.push(uv_b);
+    model.uv.push(uv_c);
 
-    scene.faces.push(
+    let index_n = model.normals.len();
+    model.normals.reserve(3);
+    model.normals.push(n_a);
+    model.normals.push(n_b);
+    model.normals.push(n_c);
+
+    model.faces.push(
         Face {
             vertices: (index, index+1, index+2),
             uv: (index_uv, index_uv+1, index_uv+2),
-            normal: normal,
-            texture_id: texture_id
+            normals: (index_n, index_n+1, index_n+2)
         }
     );
 }
 
-pub fn new_face_from_index(scene: &mut Scene3D, vertices: (usize, usize, usize), texture_id: usize, uv: (usize, usize, usize)) {
+pub fn new_face_from_index(model: &mut Model3D, vertices: (usize, usize, usize), uv: (usize, usize, usize)) {
     let (a, b, c) = vertices;
-    let va = scene.vertices[a];
-    let vb = scene.vertices[b];
-    let vc = scene.vertices[c];
-    let normal = (vb - va).cross(vc - va);
+    let va = model.vertices[a];
+    let vb = model.vertices[b];
+    let vc = model.vertices[c];
+    let normal = -(vb - va).cross(vc - va).normalize();
+    let index = model.normals.len();
+    model.normals.push(normal);
 
-    scene.faces.push(
+    model.faces.push(
         Face {
             vertices: (a, b, c),
             uv: uv,
-            normal: normal,
-            texture_id: texture_id
+            normals: (index, index, index)
         }
     );
 }
@@ -413,5 +435,22 @@ impl Canva {
 #[inline(always)]
 fn index<N: Add<Output = N> + Mul<Output = N>>(x: N, y: N, width: N) -> N {
     return x + y * width;
+}
+
+#[inline(always)]
+pub fn rgb_to_vec3(rgb: Rgb<u8>) -> Vec3 {
+    let [r, g, b] = rgb.0;
+    const INV: f32 = 1.0 / 255.0;
+
+    return Vec3::new(r as f32 * INV, g as f32 * INV, b as f32 * INV);
+}
+
+#[inline(always)]
+pub fn vec3_to_rgb(v: Vec3) -> Rgb<u8> {
+    let r = (v.x * 255.0).clamp(0.0, 255.0) as u8;
+    let g = (v.y * 255.0).clamp(0.0, 255.0) as u8;
+    let b = (v.z * 255.0).clamp(0.0, 255.0) as u8;
+
+    return Rgb([r, g, b]);
 }
 
