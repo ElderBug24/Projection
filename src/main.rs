@@ -38,61 +38,49 @@ fn main() -> Result<()> {
     let (mut cols, mut rows) = get_screen_size()?;
     let mut grid: BrailleCharGridVector<BrailleCharUnOrdered> = BrailleCharGridVector::new(cols, rows);
     let mut canva = Canva::new(cols * 2, rows * 4);
-    let mut scene = Scene3D {
-        camera: Camera::default(),
-        lights: vec![
+    let mut scene = Scene3DBuilder::new()
+        .lights(&[
             Light {
                 pos: Vec3::ZERO,
-                intensity: 30.0
-            },
-            Light {
-                pos: Vec3::ZERO,
-                intensity:  0.0
+                intensity: 1.0
             }
-        ],
-        buffered_faces: vec![],
-        buffered_textures: vec![]
-    };
-    let mut bunny = Model3D {
-        vertices: vec![
-            Vec3::new(2.0, -2.0, 10.0),
-            Vec3::new(2.0, 3.0, 10.0),
-            Vec3::new(-2.0, 3.0, 10.0),
-            Vec3::new(-2.0, -2.0, 10.0)
-        ],
-        uv: vec![
-            Vec2::new(0.0, 0.0),
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0),
-        ],
-        normals: vec![],
-        faces: vec![],
-        texture: image::open("./bunny.jpg").unwrap().into_rgb8().into()
-
-    };
-    new_face_from_index(&mut bunny, (0, 1, 2), (3, 1, 0));
-    new_face_from_index(&mut bunny, (0, 2, 3), (3, 0, 2));
-    let mut cat = Model3D {
-        vertices: vec![
+        ])
+        .build();
+    let bunny_img = Model3DBuilder::new()
+        .vertices(&[
             Vec3::new(2.0, -2.0, 5.0),
             Vec3::new(2.0, 3.0, 5.0),
-            Vec3::new(2.0, 3.0, 10.0),
-            Vec3::new(2.0, -2.0, 10.0)
-        ],
-        uv: vec![
+            Vec3::new(-2.0, 3.0, 5.0),
+            Vec3::new(-2.0, -2.0, 5.0)
+        ])
+        .uv(&[
             Vec2::new(0.0, 0.0),
             Vec2::new(1.0, 0.0),
             Vec2::new(0.0, 1.0),
             Vec2::new(1.0, 1.0),
-        ],
-        normals: vec![],
-        faces: vec![],
-        texture: image::open("./cat.jpg").unwrap().into_rgb8().into()
-
-    };
-    new_face_from_index(&mut cat, (0, 1, 2), (3, 1, 0));
-    new_face_from_index(&mut cat, (0, 2, 3), (3, 0, 2));
+        ])
+        .face_from_index((0, 1, 2), (3, 1, 0))
+        .face_from_index((0, 2, 3), (3, 0, 2))
+        .open_texture("./bunny.jpg").unwrap()
+        .build();
+    let cat_img = Model3DBuilder::new()
+        .vertices(&[
+            Vec3::new(2.0, -2.0, 0.0),
+            Vec3::new(2.0, 3.0, 0.0),
+            Vec3::new(2.0, 3.0, 5.0),
+            Vec3::new(2.0, -2.0, 5.0)
+        ])
+        .uv(&[
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(1.0, 1.0),
+        ])
+        .face_from_index((0, 1, 2), (3, 1, 0))
+        .face_from_index((0, 2, 3), (3, 0, 2))
+        .open_texture("./cat.jpg").unwrap()
+        .build();
+    let CAT = Model3DBuilder::from_file("./model.obj").unwrap().build();
 
     queue!(stdout, EnterAlternateScreen)?;
     queue!(stdout, Clear(ClearType::All))?;
@@ -117,31 +105,32 @@ fn main() -> Result<()> {
         let cam_forward = scene.camera.forward();
         let cam_right = scene.camera.right();
         let cam_up = Vec3::Y;
+        let speed = 1.5;
         if poll(Duration::ZERO)? {
             if let Event::Key(KeyEvent { code, .. }) = read()? {
                 match code {
                     KeyCode::Esc => break,
-                    KeyCode::Char('w') => scene.camera.pos += cam_forward * 0.05, // forward
-                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * 0.05, // backward
-                    KeyCode::Char('d') => scene.camera.pos += cam_right * 0.05,   // right
-                    KeyCode::Char('a') => scene.camera.pos -= cam_right * 0.05,   // left
-                    KeyCode::Char(' ') => scene.camera.pos += cam_up * 0.05,      // up
-                    KeyCode::Char('v') => scene.camera.pos -= cam_up * 0.05,      // down
-                    KeyCode::Char('e') => scene.camera.yaw -= 0.03,
-                    KeyCode::Char('q') => scene.camera.yaw += 0.03,
-                    KeyCode::Char('r') => scene.camera.pitch += 0.03,
-                    KeyCode::Char('f') => scene.camera.pitch -= 0.03,
-                    KeyCode::Char('g') => scene.camera.roll += 0.03,
-                    KeyCode::Char('t') => scene.camera.roll -= 0.03,
-                    KeyCode::Char('y') => scene.camera.fov += 0.03,
-                    KeyCode::Char('h') => scene.camera.fov -= 0.03,
+                    KeyCode::Char('w') => scene.camera.pos += cam_forward * speed, // forward
+                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * speed, // backward
+                    KeyCode::Char('d') => scene.camera.pos += cam_right * speed,   // right
+                    KeyCode::Char('a') => scene.camera.pos -= cam_right * speed,   // left
+                    KeyCode::Char(' ') => scene.camera.pos += cam_up * speed,      // up
+                    KeyCode::Char('v') => scene.camera.pos -= cam_up * speed,      // down
+                    KeyCode::Char('e') => scene.camera.yaw -= 0.05,
+                    KeyCode::Char('q') => scene.camera.yaw += 0.05,
+                    KeyCode::Char('r') => scene.camera.pitch += 0.05,
+                    KeyCode::Char('f') => scene.camera.pitch -= 0.05,
+                    KeyCode::Char('g') => scene.camera.roll += 0.05,
+                    KeyCode::Char('t') => scene.camera.roll -= 0.05,
+                    KeyCode::Char('y') => scene.camera.fov += 0.05,
+                    KeyCode::Char('h') => scene.camera.fov -= 0.05,
                     KeyCode::Char('x') => display_color = false,
                     KeyCode::Char('c') => display_color = true,
                     _ => {}
                 }
             }
         }
-        scene.lights[1].pos = scene.camera.pos;
+        scene.lights[0].pos = scene.camera.pos;
 
         grid.resize(cols, rows, (0, 0), BrailleCharUnOrdered::EMPTY);
         canva.clear();
@@ -149,8 +138,9 @@ fn main() -> Result<()> {
 
         // render
         scene.clear_queue();
-        scene.queue_render(&bunny);
-        scene.queue_render(&cat);
+        scene.queue_render(&bunny_img);
+        scene.queue_render(&cat_img);
+        scene.queue_render(&CAT);
         scene.render(&mut canva);
 
         // dithering

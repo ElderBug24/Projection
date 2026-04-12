@@ -1,8 +1,11 @@
 use std::ops::{Add, Mul};
 use std::rc::Rc;
+use std::path::Path;
+use std::fs::File;
+use std::io::{self, BufReader, BufRead};
 
 use glam::{Vec3, Vec2, Quat};
-use image::{RgbImage, Rgb};
+use image::{self, RgbImage, Rgb, ImageError};
 
 
 pub const NEAR: f32 = 0.1;
@@ -14,7 +17,42 @@ pub struct Scene3D {
     pub camera: Camera,
     pub lights: Vec<Light>,
     pub buffered_faces: Vec<FaceOwned2>,
-    pub buffered_textures: Vec<Rc<RgbImage>>
+    pub buffered_textures: Vec<Rc<RgbImage>>,
+    pub pixel_buffer: Vec<(usize, f32, (f32, f32, f32))>
+}
+
+#[derive(Default)]
+pub struct Scene3DBuilder {
+    pub camera: Camera,
+    pub lights: Vec<Light>
+}
+
+impl Scene3DBuilder {
+    pub fn new() -> Self {
+        return Self::default();
+    }
+
+    pub fn build(self) -> Scene3D {
+        return Scene3D {
+            camera: self.camera,
+            lights: self.lights,
+            buffered_faces: Vec::new(),
+            buffered_textures: Vec::new(),
+            pixel_buffer: Vec::new()
+        };
+    }
+
+    pub fn camera(mut self, camera: Camera) -> Self {
+        self.camera = camera;
+
+        return self;
+    }
+
+    pub fn lights(mut self, lights: &[Light]) -> Self {
+        self.lights.extend(lights);
+
+        return self;
+    }
 }
 
 pub struct Model3D {
@@ -23,6 +61,199 @@ pub struct Model3D {
     pub normals: Vec<Vec3>,
     pub faces: Vec<Face>,
     pub texture: Rc<RgbImage>
+}
+
+#[derive(Default)]
+pub struct Model3DBuilder {
+    pub vertices: Vec<Vec3>,
+    pub uv: Vec<Vec2>,
+    pub normals: Vec<Vec3>,
+    pub faces: Vec<Face>,
+    pub texture: Option<Rc<RgbImage>>
+}
+
+impl Model3DBuilder {
+    pub fn new() -> Self {
+        return Self::default();
+    }
+
+    pub fn build(self) -> Model3D {
+        return Model3D {
+            vertices: self.vertices,
+            uv: self.uv,
+            normals: self.normals,
+            faces: self.faces,
+            texture: self.texture.unwrap_or(RgbImage::from_raw(1, 1, vec![255, 255, 255]).unwrap().into()) // 1x1 white texture
+        };
+    }
+
+    pub fn from_file<P: AsRef<Path>>(filename: P) -> io::Result<Self> {
+        let mut vertices = Vec::new();
+        let mut uv = Vec::new();
+        let mut normals = Vec::new();
+        let mut faces = Vec::new();
+
+        let mut faces_without_uv = Vec::new();
+        let mut faces_without_normals = Vec::new();
+
+        let file = File::open(filename)?;
+        let lines = BufReader::new(file).lines();
+
+        for (row, line) in lines.map_while(Result::ok).enumerate() {
+            let words = line.split_whitespace().collect::<Vec<_>>();
+
+            match words[0] {
+                "#" => println!("Comment: '{}'", words[1..].join(" ")),
+                "o" => println!("Object name: '{}'", words[1..].join(" ")),
+                "g" => println!("Group name: '{}'", words[1..].join(" ")),
+                "v" => {
+                    if let (Ok(x), Ok(y), Ok(z)) = (words[1].parse::<f32>(), words[2].parse::<f32>(), words[3].parse::<f32>()) {
+                        vertices.push(Vec3::new(x, y, z));
+                    } else {
+                        eprintln!("Error parsing line {}: {}", row, words.join(" "));
+                    }
+                },
+                "vt" => {
+                    let (x_, y_) = (words[1].parse::<f32>(), words[2].parse::<f32>());
+                    if let Ok(x) = x_ {
+                        let y = y_.unwrap_or(0.0);
+
+                        uv.push(Vec2::new(x, y));
+                    }
+                },
+                "vn" => {
+                    if let (Ok(x), Ok(y), Ok(z)) = (words[1].parse::<f32>(), words[2].parse::<f32>(), words[3].parse::<f32>()) {
+                        normals.push(Vec3::new(x, y, z).normalize());
+                    } else {
+                        eprintln!("Error parsing line {}: {}", row, words.join(" "));
+                    }
+                },
+                "f" => {
+                    if words.len() > 4 {
+                        println!("Face is not a triangle: '{}'", words.join(" "));
+
+                        continue;
+                    }
+
+                    if let (Ok([v_a_, u_a_, n_a_]), Ok([v_b_, u_b_, n_b_]), Ok([v_c_, u_c_, n_c_])) = (TryInto::<[&str; 3]>::try_into(words[1].split('/').collect::<Vec<_>>()), TryInto::
+<[&str; 3]>::try_into(words[2].split('/').collect::<Vec<_>>()), TryInto::<[&str; 3]>::try_into(words[3].split('/').collect::<Vec<_>>())) {
+                        if let (Ok(v_a), Ok(n_a), Ok(v_b), Ok(n_b), Ok(v_c), Ok(n_c)) = (v_a_.parse::<usize>(), n_a_.parse::<usize>(), v_b_.parse::<usize>(), n_b_.parse::<usize>(), v_c_.parse::<usize>(), n_c_.parse::<usize>()) {
+                            if let (Ok(u_a), Ok(u_b), Ok(u_c)) = (u_a_.parse::<usize>(), u_b_.parse::<usize>(), u_c_.parse::<usize>()) {
+                                faces.push(Face {
+                                    vertices: (v_a-1, v_b-1, v_c-1),
+                                    uv: (u_a-1, u_b-1, u_c-1),
+                                    normals: (n_a-1, n_b-1, n_c-1)
+                                });
+                            } else {
+                                faces_without_uv.push(faces.len());
+                                faces.push(Face {
+                                    vertices: (v_a-1, v_b-1, v_c-1),
+                                    uv: (1, 1, 1),
+                                    normals: (n_a-1, n_b-1, n_c-1)
+                                });
+                            }
+                        } else {
+                            eprintln!("Error parsing line {}: {}", row, words.join(" "));
+                        }
+                    } else if let (Ok([v_a_, u_a_]), Ok([v_b_, u_b_]), Ok([v_c_, u_c_])) = (TryInto::<[&str; 2]>::try_into(words[1].split('/').collect::<Vec<_>>()), TryInto::<[&str; 2]>::try_into(words[2].split('/').collect::<Vec<_>>()), TryInto::<[&str; 2]>::try_into(words[3].split('/').collect::<Vec<_>>())) {
+                        if let (Ok(v_a), Ok(u_a), Ok(v_b), Ok(u_b), Ok(v_c), Ok(u_c)) = (v_a_.parse::<usize>(), u_a_.parse::<usize>(), v_b_.parse::<usize>(), u_b_.parse::<usize>(), v_c_.parse::<usize>(), u_c_.parse::<usize>()) {
+                            faces_without_normals.push(faces.len());
+                            faces.push(Face {
+                                vertices: (v_a-1, v_b-1, v_c-1),
+                                uv: (u_a-1, u_b-1, u_c-1),
+                                normals: (1, 1, 1)
+                            });
+                        } else {
+                            eprintln!("Error parsing line {}: {}", row, words.join(" "));
+                        }
+                    } else if let (Ok(v_a), Ok(v_b), Ok(v_c)) = (words[1].parse::<usize>(), words[2].parse::<usize>(), words[3].parse::<usize>()) {
+                        faces_without_uv.push(faces.len());
+                        faces_without_normals.push(faces.len());
+                        faces.push(Face {
+                            vertices: (v_a-1, v_b-1, v_c-1),
+                            uv: (1, 1, 1),
+                            normals: (1, 1, 1)
+                        });
+                    } else {
+                        eprintln!("Error parsing line {}: {}", row, words.join(" "));
+                    }
+                },
+                _ => println!("{:?}", words)
+            }
+        }
+
+        assert_eq!(0, faces_without_uv.len());
+        assert_eq!(0, faces_without_normals.len());
+        assert_ne!(0, faces.len());
+
+        return Ok(Self {
+            vertices: vertices,
+            uv: uv,
+            normals: normals,
+            faces: faces,
+            ..Default::default()
+        });
+    }
+
+    pub fn vertices(mut self, vertices: &[Vec3]) -> Self {
+        self.vertices.extend(vertices);
+
+        return self;
+    }
+
+    pub fn uv(mut self, uv: &[Vec2]) -> Self {
+        self.uv.extend(uv);
+
+        return self;
+    }
+
+    pub fn normals(mut self, normals: &[Vec3]) -> Self {
+        self.normals.extend(normals);
+
+        return self;
+    }
+
+    pub fn faces(mut self, faces: &[Face]) -> Self {
+        self.faces.extend(faces);
+
+        return self;
+    }
+
+    pub fn face_from_index(mut self, vertices: (usize, usize, usize), uv: (usize, usize, usize)) -> Self {
+        let (a, b, c) = vertices;
+        let va = self.vertices[a];
+        let vb = self.vertices[b];
+        let vc = self.vertices[c];
+        let normal = -(vb - va).cross(vc - va).normalize();
+        let index = self.normals.len();
+        self.normals.push(normal);
+
+        self.faces.push(
+            Face {
+                vertices: (a, b, c),
+                uv: uv,
+                normals: (index, index, index)
+            }
+        );
+
+        return self;
+    }
+
+    pub fn texture(mut self, texture: Rc<RgbImage>) -> Self {
+        self.texture = Some(texture);
+
+        return self;
+    }
+
+    pub fn open_texture<P: AsRef<Path>>(mut self, filename: P) -> Result<Self, ImageError> {
+        return image::open(filename)
+            .map(|image| {
+                let image = image.into_rgb8();
+                self.texture = Some(image.into());
+
+                self
+            });
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -75,11 +306,12 @@ impl Scene3D {
             let b = camera_rotation * (b - camera_pos);
             let c = camera_rotation * (c - camera_pos);
 
-            if a.z.min(b.z).min(c.z) > FAR {
-                continue
+            let (a_, b_, c_) = (a.z <= NEAR, b.z <= NEAR, c.z <= NEAR);
+
+            if a_ && b_ && c_ {
+                continue;
             }
 
-            let (a_, b_, c_) = (a.z <= NEAR, b.z <= NEAR, c.z <= NEAR);
             match a_ as u8 + b_ as u8 + c_ as u8 {
                 0 => {
                     let uv_a = model.uv[uv_a];
@@ -193,8 +425,9 @@ impl Scene3D {
         }
     }
 
-    pub fn render(&self, canva: &mut Canva) {
-        let mut buffer: Vec<(usize, f32, (f32, f32, f32))> = vec![(0, f32::INFINITY, (0.0, 0.0, 0.0)); canva.width() * canva.height()];
+    pub fn render(&mut self, canva: &mut Canva) {
+        self.pixel_buffer.clear();
+        self.pixel_buffer.resize(canva.width() * canva.height(), (0, f32::INFINITY, (0.0, 0.0, 0.0)));
         let width = canva.width();
         let height = canva.height();
         let sx = width as f32 / 2.0;
@@ -239,8 +472,8 @@ impl Scene3D {
                         let z_pixel = alpha * z0 + beta * z1 + gamma * z2;
 
                         let index = x as usize + y as usize * width;
-                        if z_pixel < buffer[index].1 {
-                            buffer[index] = (face_index + 1, z_pixel, (alpha, beta, gamma));
+                        if z_pixel < self.pixel_buffer[index].1 {
+                            self.pixel_buffer[index] = (face_index + 1, z_pixel, (alpha, beta, gamma));
                         }
                     }
                 }
@@ -249,7 +482,7 @@ impl Scene3D {
 
         for y in 0..height {
             for x in 0..width {
-                let (face_index, _z_pixel, (alpha, beta, gamma)) = buffer[x + y * width];
+                let (face_index, _z_pixel, (alpha, beta, gamma)) = self.pixel_buffer[x + y * width];
                 if face_index == 0 {
                     continue;
                 }
@@ -263,20 +496,20 @@ impl Scene3D {
 
                 let w = alpha * w_a + beta * w_b + gamma * w_c;
                 let uv = (alpha * uv_a * w_a + beta * uv_b * w_b + gamma * uv_c * w_c) / w;
-                // let normal = ((alpha * n_a * w_a + beta * n_b * w_b + gamma * n_c * w_c) / w).normalize();
-                let normal = n_a;
+                let normal = ((alpha * n_a * w_a + beta * n_b * w_b + gamma * n_c * w_c) / w).normalize();
                 let (u, v) = ((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32);
                 let color = rgb_to_vec3(texture.get_pixel_checked(u, v).copied().unwrap_or(Rgb([0, 0, 0])));
 
-                // let pos = alpha * a + beta * b + gamma * c;
                 let pos = (alpha * a * w_a + beta * b * w_b + gamma * c * w_c) / w;
                 let mut light_sum = 0.0;
                 for light in &lights {
                     let l = light.pos - pos;
 
-                    light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
+                    // light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
+                    light_sum += 0.1 + 0.9 * normal.dot(l.normalize()).abs() * light.intensity;
                 }
-                let light_sum = 1.0_f32;
+
+                // let light_sum = 1.0_f32;
 
                 // let result = Vec3::ONE;
                 // let result = color;
@@ -606,11 +839,13 @@ impl Default for Camera {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Light {
     pub pos: Vec3,
     pub intensity: f32
 }
 
+#[derive(Clone)]
 pub struct Canva {
     pub array: Vec<Vec3>,
     width: usize,
