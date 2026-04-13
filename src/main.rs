@@ -1,6 +1,8 @@
 mod render;
+mod model;
 
-use render::*;
+use crate::render::*;
+use crate::model::*;
 
 use braille::{BrailleCharUnOrdered, BrailleCharGridVector};
 
@@ -57,7 +59,7 @@ fn main() -> Result<()> {
             Vec2::new(0.0, 0.0),
             Vec2::new(1.0, 0.0),
             Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0),
+            Vec2::new(1.0, 1.0)
         ])
         .face_from_index((0, 1, 2), (3, 1, 0))
         .face_from_index((0, 2, 3), (3, 0, 2))
@@ -74,13 +76,31 @@ fn main() -> Result<()> {
             Vec2::new(0.0, 0.0),
             Vec2::new(1.0, 0.0),
             Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0),
+            Vec2::new(1.0, 1.0)
         ])
         .face_from_index((0, 1, 2), (3, 1, 0))
         .face_from_index((0, 2, 3), (3, 0, 2))
         .open_texture("./cat.jpg").unwrap()
         .build();
-    let CAT = Model3DBuilder::from_file("./model.obj").unwrap().build();
+    let butter_img = Model3DBuilder::new()
+        .vertices(&[
+            Vec3::new(-2.0, -2.0, 5.0),
+            Vec3::new(2.0, -2.0, 5.0),
+            Vec3::new(-2.0, -2.0, 0.0),
+            Vec3::new(2.0, -2.0, 0.0)
+        ])
+        .uv(&[
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(1.0, 1.0)
+        ])
+        .face_from_index((0, 1, 3), (0, 1, 3))
+        .face_from_index((0, 3, 2), (0, 3, 2))
+        .open_texture("./butter.jpg").unwrap()
+        .build();
+    let model = Model3DBuilder::from_file("./model.obj").unwrap()
+        .build();
 
     queue!(stdout, EnterAlternateScreen)?;
     queue!(stdout, Clear(ClearType::All))?;
@@ -140,7 +160,8 @@ fn main() -> Result<()> {
         scene.clear_queue();
         scene.queue_render(&bunny_img);
         scene.queue_render(&cat_img);
-        scene.queue_render(&CAT);
+        scene.queue_render(&butter_img);
+        scene.queue_render(&model);
         scene.render(&mut canva);
 
         // dithering
