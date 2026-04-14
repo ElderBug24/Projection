@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use std::cmp::Ordering;
+use std::time::Instant;
 
 use glam::{Vec3, Vec2};
 use image::{RgbImage, ImageError};
@@ -38,11 +39,13 @@ impl Model3DBuilder {
             uv: self.uv,
             normals: self.normals,
             faces: self.faces,
-            texture: self.texture.unwrap_or(RgbImage::from_raw(1, 1, vec![255, 255, 255]).unwrap().into()) // 1x1 white texture
+            texture: self.texture.unwrap_or(RgbImage::from_raw(1, 1, vec![127, 255, 127]).unwrap().into()) // 1x1 white texture
         };
     }
 
     pub fn from_file<P: AsRef<Path>>(filename: P) -> io::Result<Self> {
+        let start = Instant::now();
+
         let mut vertices = Vec::new();
         let mut uv = Vec::new();
         let mut normals = Vec::new();
@@ -144,36 +147,21 @@ impl Model3DBuilder {
                     };
 
                     while let Some(c) = face_words.next() {
-                        let mut no_normals = false;
-
                         let Some(c) = c else {
                             faces.truncate(previous_len);
 
                             break;
                         };
 
-                        let mut v_a = a.vertex;
-                        let mut v_b = b.vertex;
-                        let mut v_c = c.vertex;
-                        let Some(mut uv_a) = a.uv else {
+                        let (v_a, v_b, v_c) = (a.vertex, b.vertex, c.vertex);
+                        let (uv_a, uv_b, uv_c) = (a.uv, b.uv, c.uv);
+                        let (n_a, n_b, n_c) = (a.normal, b.normal, c.normal);
+
+                        if uv_a == 0 || uv_b == 0 || uv_c == 0 {
                             println!("Error parsing line {}", row);
 
                             continue;
-                        };
-                        let Some(mut uv_b) = b.uv else {
-                            println!("Error parsing line {}", row);
-
-                            continue;
-                        };
-                        let Some(mut uv_c) = c.uv else {
-                            println!("Error parsing line {}", row);
-
-                            continue;
-                        };
-                        let mut n_a = a.normal.unwrap_or(0);
-                        let mut n_b = b.normal.unwrap_or(0);
-                        let mut n_c = c.normal.unwrap_or(0);
-
+                        }
                         if n_a == 0 || n_b == 0 || n_c == 0 {
                             faces_without_normals.push(faces.len());
                         }
@@ -206,6 +194,12 @@ impl Model3DBuilder {
         }
 
         assert_eq!(0, faces_without_normals.len());
+
+        println!("\nLoaded model in {:.2} secs", start.elapsed().as_secs_f32());
+        println!(" - {} vertices", vertices.len());
+        println!(" - {} uv", uv.len());
+        println!(" - {} normals", normals.len());
+        println!(" - {} faces", faces.len());
 
         return Ok(Self {
             vertices: vertices,
@@ -280,21 +274,17 @@ impl Model3DBuilder {
 #[derive(Debug)]
 struct FaceWord {
     pub vertex: isize,
-    pub uv: Option<isize>,
-    pub normal: Option<isize>
+    pub uv: isize,
+    pub normal: isize
 }
 
 fn parse_face_word(word: &str) -> Option<FaceWord> {
-    let mut parts = word.split('/');
-
-    let v = parts.next()?.parse::<isize>().ok()?;
-    let vt = parts.next().and_then(|s| s.parse::<isize>().ok());
-    let vn = parts.next().and_then(|s| s.parse::<isize>().ok());
+    let mut parts = word.splitn(3, '/').map(|s| Some(s).filter(|s| !s.is_empty()));
 
     return Some(FaceWord {
-        vertex: v,
-        uv: vt,
-        normal: vn,
+        vertex: parts.next()??.parse::<isize>().ok()?,
+        uv: parts.next().flatten().map(|s| s.parse::<isize>()).transpose().ok()?.unwrap_or(0),
+        normal: parts.next().flatten().map(|s| s.parse::<isize>()).transpose().ok()?.unwrap_or(0),
     });
 }
 

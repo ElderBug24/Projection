@@ -44,32 +44,16 @@ fn main() -> Result<()> {
         .lights(&[
             Light {
                 pos: Vec3::ZERO,
-                intensity: 1.0
+                intensity: 1.0,
+                color: Vec3::ONE
             }
         ])
         .build();
     let bunny_img = Model3DBuilder::new()
         .vertices(&[
-            Vec3::new(2.0, -2.0, 5.0),
-            Vec3::new(2.0, 3.0, 5.0),
             Vec3::new(-2.0, 3.0, 5.0),
-            Vec3::new(-2.0, -2.0, 5.0)
-        ])
-        .uv(&[
-            Vec2::new(0.0, 0.0),
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0)
-        ])
-        .face_from_index((0, 1, 2), (3, 1, 0))
-        .face_from_index((0, 2, 3), (3, 0, 2))
-        .open_texture("./bunny.jpg").unwrap()
-        .build();
-    let cat_img = Model3DBuilder::new()
-        .vertices(&[
-            Vec3::new(2.0, -2.0, 0.0),
-            Vec3::new(2.0, 3.0, 0.0),
             Vec3::new(2.0, 3.0, 5.0),
+            Vec3::new(-2.0, -2.0, 5.0),
             Vec3::new(2.0, -2.0, 5.0)
         ])
         .uv(&[
@@ -78,8 +62,25 @@ fn main() -> Result<()> {
             Vec2::new(0.0, 1.0),
             Vec2::new(1.0, 1.0)
         ])
-        .face_from_index((0, 1, 2), (3, 1, 0))
-        .face_from_index((0, 2, 3), (3, 0, 2))
+        .face_from_index((0, 1, 3), (0, 1, 3))
+        .face_from_index((0, 3, 2), (0, 3, 2))
+        .open_texture("./bunny.jpg").unwrap()
+        .build();
+    let cat_img = Model3DBuilder::new()
+        .vertices(&[
+            Vec3::new(2.0, 3.0, 5.0),
+            Vec3::new(2.0, 3.0, 0.0),
+            Vec3::new(2.0, -2.0, 5.0),
+            Vec3::new(2.0, -2.0, 0.0)
+        ])
+        .uv(&[
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(1.0, 1.0)
+        ])
+        .face_from_index((0, 1, 3), (0, 1, 3))
+        .face_from_index((0, 3, 2), (0, 3, 2))
         .open_texture("./cat.jpg").unwrap()
         .build();
     let butter_img = Model3DBuilder::new()

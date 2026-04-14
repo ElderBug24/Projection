@@ -9,7 +9,7 @@ use image::{self, RgbImage, Rgb};
 
 pub const NEAR: f32 = 0.1;
 pub const FAR: f32 = 1000.0;
-pub const CULLING: bool = false;
+pub const CULLING: bool = true;
 
 
 pub struct Scene3D {
@@ -95,7 +95,7 @@ impl Scene3D {
             if CULLING {
                 let centroid = (a + b + c) / 3.0;
                 let normal = (b - a).cross(c - a);
-                if normal.dot(centroid - camera_pos) <= 0.0 {
+                if normal.dot(centroid - camera_pos) >= 0.0 {
                     continue;
                 }
             }
@@ -235,9 +235,10 @@ impl Scene3D {
         let camera_rotation = self.camera.rotation();
         let camera_pos = self.camera.pos;
         let lights: Vec<Light> = self.lights.iter()
-            .map(|Light { pos, intensity }| Light {
+            .map(|Light { pos, intensity, color }| Light {
                 pos: camera_rotation * (pos - camera_pos),
-                intensity: *intensity
+                intensity: *intensity,
+                color: *color
             }).collect();
 
         for (face_index, face) in self.buffered_faces.iter().enumerate() {
@@ -247,9 +248,9 @@ impl Scene3D {
             let (x1, y1, z1) = (b.x / b.z * fov / aspect * sx + sx, b.y / b.z * fov * sy + sy, (b.z - NEAR) / (FAR - NEAR));
             let (x2, y2, z2) = (c.x / c.z * fov / aspect * sx + sx, c.y / c.z * fov * sy + sy, (c.z - NEAR) / (FAR - NEAR));
 
-            // canva.draw_circle(x0 as usize, y0 as usize, 3, Vec3::splat(255.0));
-            // canva.draw_circle(x1 as usize, y1 as usize, 3, Vec3::splat(255.0));
-            // canva.draw_circle(x2 as usize, y2 as usize, 3, Vec3::splat(255.0));
+            // canva.draw_circle(x0 as usize, height - y0 as usize - 1, 3, Vec3::ONE);
+            // canva.draw_circle(x1 as usize, height - y1 as usize - 1, 3, Vec3::ONE);
+            // canva.draw_circle(x2 as usize, height - y2 as usize - 1, 3, Vec3::ONE);
 
             let xmin = (x0.min(x1).min(x2).floor() as i32).clamp(0, width as i32 - 1);
             let xmax = (x0.max(x1).max(x2).ceil() as i32).clamp(0, width as i32 - 1);
@@ -297,21 +298,38 @@ impl Scene3D {
                 let normal = ((alpha * n_a * w_a + beta * n_b * w_b + gamma * n_c * w_c) / w).normalize();
                 let (u, v) = ((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32);
                 let color = rgb_to_vec3(texture.get_pixel_checked(u, v).copied().unwrap_or(Rgb([0, 0, 0])));
-
                 let pos = (alpha * a * w_a + beta * b * w_b + gamma * c * w_c) / w;
-                let mut light_sum = 0.0;
-                for light in &lights {
-                    let l = light.pos - pos;
 
-                    // light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
-                    light_sum += 0.1 + 0.9 * normal.dot(l.normalize()).abs() * light.intensity;
-                }
+                let fragment = Fragment {
+                    pos: pos,
+                    normal: normal,
+                    color: color
+                };
 
-                // let light_sum = 1.0_f32;
+                let material = Material {
+                    ns: 16.0,
+                    ka: 0.1,
+                    kd: 0.9,
+                    ks: Vec3::new(0.0, 0.0, 0.0),
+                    ke: Vec3::new(0.0, 0.0, 0.0),
+                    illum: IlluminationModel::Illum3
+                };
 
-                // let result = Vec3::ONE;
-                // let result = color;
-                let result = color * light_sum.clamp(0.0, 1.0);
+                let result = material.render(&fragment, &lights, 10.0);
+
+                // let mut light_sum = 0.0;
+                // for light in &lights {
+                //     let l = light.pos - pos;
+                //
+                //     // light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
+                //     light_sum += 0.1 + 0.9 * normal.dot(l.normalize()).abs() * light.intensity;
+                // }
+                //
+                // // let light_sum = 1.0_f32;
+                //
+                // // let result = Vec3::ONE;
+                // // let result = color;
+                // let result = color * light_sum.clamp(0.0, 1.0);
 
                 canva.array[x + (height - y - 1) * width] = result;
             }
@@ -322,7 +340,7 @@ impl Scene3D {
         self.buffered_faces.clear();
     }
 
-    pub fn render_model(&self, model: &Model3D, canva: &mut Canva) {
+    pub fn _render_model(&self, model: &Model3D, canva: &mut Canva) {
         let mut buffer: Vec<(usize, f32, (f32, f32, f32))> = vec![(0, f32::INFINITY, (0.0, 0.0, 0.0)); canva.width() * canva.height()];
         let width = canva.width();
         let height = canva.height();
@@ -333,9 +351,10 @@ impl Scene3D {
         let camera_rotation = self.camera.rotation();
         let camera_pos = self.camera.pos;
         let lights: Vec<Light> = self.lights.iter()
-            .map(|Light { pos, intensity }| Light {
+            .map(|Light { pos, intensity, color }| Light {
                 pos: camera_rotation * (pos - camera_pos),
-                intensity: *intensity
+                intensity: *intensity,
+                color: *color
             }).collect();
         let mut faces: Vec<FaceOwned> = Vec::with_capacity(model.faces.len() * 2);
 
@@ -528,8 +547,8 @@ impl Scene3D {
                 let normal = ((alpha * n_a * w_a + beta * n_b * w_b + gamma * n_c * w_c) / w).normalize();
                 let (u, v) = ((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32);
                 let color = rgb_to_vec3(texture.get_pixel_checked(u, v).copied().unwrap_or(Rgb([0, 0, 0])));
-
                 let pos = (alpha * a * w_a + beta * b * w_b + gamma * c * w_c) / w;
+
                 let mut light_sum = 0.0;
                 for light in &lights {
                     let l = light.pos - pos;
@@ -640,7 +659,8 @@ impl Default for Camera {
 #[derive(Clone, Copy)]
 pub struct Light {
     pub pos: Vec3,
-    pub intensity: f32
+    pub intensity: f32,
+    pub color: Vec3
 }
 
 #[derive(Clone)]
@@ -737,5 +757,78 @@ pub fn vec3_to_rgb(v: Vec3) -> Rgb<u8> {
     let b = (v.z * 255.0).clamp(0.0, 255.0) as u8;
 
     return Rgb([r, g, b]);
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum IlluminationModel {
+    Illum0 = 0,
+    Illum1 = 1,
+    Illum2 = 2,
+    Illum3 = 3
+}
+
+impl IlluminationModel {
+    pub fn into_u8(&self) -> u8 {
+        return match self {
+            Self::Illum0 => 0,
+            Self::Illum1 => 1,
+            Self::Illum2 => 2,
+            Self::Illum3 => 3
+        };
+    }
+
+    pub fn try_from_u8(value: u8) -> Option<Self> {
+        return match value {
+            0 => Some(Self::Illum0),
+            1 => Some(Self::Illum1),
+            2 => Some(Self::Illum2),
+            3 => Some(Self::Illum3),
+            _ => None
+        };
+    }
+}
+
+pub struct Fragment {
+    pub pos: Vec3,
+    pub normal: Vec3,
+    pub color: Vec3
+}
+
+pub struct Material {
+    pub ns: f32,
+    pub ka: f32,
+    pub kd: f32,
+    pub ks: Vec3,
+    pub ke: Vec3,
+    pub illum: IlluminationModel
+}
+
+impl Material {
+    pub fn render(&self, fragment: &Fragment, ligths: &[Light], la: f32) -> Vec3 {
+        let &Fragment { pos, normal, color } = fragment;
+        let &Material { ns, ka, mut kd, ks, ke, illum, .. } = self;
+
+        // if let Some(color) = color {
+        //     kd = color;
+        // }
+
+        return (color + ke) * match illum {
+            IlluminationModel::Illum0 => Vec3::ZERO,
+            IlluminationModel::Illum1 => Vec3::splat(ka * la),
+            IlluminationModel::Illum2 => ka * la + kd * ligths.iter().map(|Light { pos: light_pos, intensity: light_intensity, color: light_color }| light_intensity * light_color * normal.dot((light_pos - pos).normalize()).max(0.0)).sum::<Vec3>(),
+            IlluminationModel::Illum3 => {
+                let v = (-pos).normalize();
+
+                ka * la + ligths.iter().map(|Light { pos: light_pos, intensity: light_intensity, color: light_color }| {
+                    let l = (light_pos - pos).normalize();
+                    let h = (l + v).normalize();
+
+                    light_intensity * light_color * (kd * normal.dot(l).max(0.0) + ks * normal.dot(h).max(0.0).powf(ns))
+                })
+                .sum::<Vec3>()
+            }
+        };
+    }
 }
 
