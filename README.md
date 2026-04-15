@@ -8,3 +8,9 @@ Note: the artifacts visible on the screenshots are only due to compression of th
 ![Alt text](./screenshots/screenshot2.png?raw=true)
 
 ![Alt text](./screenshots/screenshot3.png?raw=true)
+
+![Alt text](./screenshots/screenshot4.png?raw=true)
+
+![Alt text](./screenshots/screenshot5.png?raw=true)
+
+![Alt text](./screenshots/screenshot6.png?raw=true)
