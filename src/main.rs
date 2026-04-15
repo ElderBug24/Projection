@@ -43,63 +43,67 @@ fn main() -> Result<()> {
     let mut scene = Scene3DBuilder::new()
         .lights(&[
             Light {
-                pos: Vec3::ZERO,
+                // pos: Vec3::ZERO,
+                pos: Vec3::new(-18.089386, 127.5, 89.400246),
                 intensity: 1.0,
                 color: Vec3::ONE
             }
         ])
         .build();
-    let bunny_img = Model3DBuilder::new()
-        .vertices(&[
-            Vec3::new(-2.0, 3.0, 5.0),
-            Vec3::new(2.0, 3.0, 5.0),
-            Vec3::new(-2.0, -2.0, 5.0),
-            Vec3::new(2.0, -2.0, 5.0)
-        ])
-        .uv(&[
-            Vec2::new(0.0, 0.0),
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0)
-        ])
-        .face_from_index((0, 1, 3), (0, 1, 3))
-        .face_from_index((0, 3, 2), (0, 3, 2))
-        .open_texture("./bunny.jpg").unwrap()
-        .build();
-    let cat_img = Model3DBuilder::new()
-        .vertices(&[
-            Vec3::new(2.0, 3.0, 5.0),
-            Vec3::new(2.0, 3.0, 0.0),
-            Vec3::new(2.0, -2.0, 5.0),
-            Vec3::new(2.0, -2.0, 0.0)
-        ])
-        .uv(&[
-            Vec2::new(0.0, 0.0),
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0)
-        ])
-        .face_from_index((0, 1, 3), (0, 1, 3))
-        .face_from_index((0, 3, 2), (0, 3, 2))
-        .open_texture("./cat.jpg").unwrap()
-        .build();
-    let butter_img = Model3DBuilder::new()
-        .vertices(&[
-            Vec3::new(-2.0, -2.0, 5.0),
-            Vec3::new(2.0, -2.0, 5.0),
-            Vec3::new(-2.0, -2.0, 0.0),
-            Vec3::new(2.0, -2.0, 0.0)
-        ])
-        .uv(&[
-            Vec2::new(0.0, 0.0),
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0)
-        ])
-        .face_from_index((0, 1, 3), (0, 1, 3))
-        .face_from_index((0, 3, 2), (0, 3, 2))
-        .open_texture("./butter.jpg").unwrap()
-        .build();
+    // let bunny_img = Model3DBuilder::new()
+    //     .vertices(&[
+    //         Vec3::new(-2.0, 3.0, 5.0),
+    //         Vec3::new(2.0, 3.0, 5.0),
+    //         Vec3::new(-2.0, -2.0, 5.0),
+    //         Vec3::new(2.0, -2.0, 5.0)
+    //     ])
+    //     .uv(&[
+    //         Vec2::new(0.0, 0.0),
+    //         Vec2::new(1.0, 0.0),
+    //         Vec2::new(0.0, 1.0),
+    //         Vec2::new(1.0, 1.0)
+    //     ])
+    //     .groups(&[Group::default()])
+    //     .face_from_index((0, 1, 3), (0, 1, 3), 0)
+    //     .face_from_index((0, 3, 2), (0, 3, 2), 0)
+    //     .material(Material::default().with_open_texture("./bunny.jpg").unwrap(), 0)
+    //     .build();
+    // let cat_img = Model3DBuilder::new()
+    //     .vertices(&[
+    //         Vec3::new(2.0, 3.0, 5.0),
+    //         Vec3::new(2.0, 3.0, 0.0),
+    //         Vec3::new(2.0, -2.0, 5.0),
+    //         Vec3::new(2.0, -2.0, 0.0)
+    //     ])
+    //     .uv(&[
+    //         Vec2::new(0.0, 0.0),
+    //         Vec2::new(1.0, 0.0),
+    //         Vec2::new(0.0, 1.0),
+    //         Vec2::new(1.0, 1.0)
+    //     ])
+    //     .groups(&[Group::default()])
+    //     .face_from_index((0, 1, 3), (0, 1, 3), 0)
+    //     .face_from_index((0, 3, 2), (0, 3, 2), 0)
+    //     .material(Material::default().with_open_texture("./cat.jpg").unwrap(), 0)
+    //     .build();
+    // let butter_img = Model3DBuilder::new()
+    //     .vertices(&[
+    //         Vec3::new(-2.0, -2.0, 5.0),
+    //         Vec3::new(2.0, -2.0, 5.0),
+    //         Vec3::new(-2.0, -2.0, 0.0),
+    //         Vec3::new(2.0, -2.0, 0.0)
+    //     ])
+    //     .uv(&[
+    //         Vec2::new(0.0, 0.0),
+    //         Vec2::new(1.0, 0.0),
+    //         Vec2::new(0.0, 1.0),
+    //         Vec2::new(1.0, 1.0)
+    //     ])
+    //     .groups(&[Group::default()])
+    //     .face_from_index((0, 1, 3), (0, 1, 3), 0)
+    //     .face_from_index((0, 3, 2), (0, 3, 2), 0)
+    //     .material(Material::default().with_open_texture("./butter.jpg").unwrap(), 0)
+    //     .build();
     let model = Model3DBuilder::from_file("./model.obj").unwrap()
         .build();
 
@@ -112,6 +116,7 @@ fn main() -> Result<()> {
 
     let mut last_frame = Instant::now();
     let mut line_buf = String::new();
+    let mut move_camera = false;
 
     loop {
         let now = Instant::now();
@@ -127,16 +132,18 @@ fn main() -> Result<()> {
         let cam_right = scene.camera.right();
         let cam_up = Vec3::Y;
         let speed = 1.5;
+
+        let mut pos = Vec3::ZERO;
         if poll(Duration::ZERO)? {
             if let Event::Key(KeyEvent { code, .. }) = read()? {
                 match code {
                     KeyCode::Esc => break,
-                    KeyCode::Char('w') => scene.camera.pos += cam_forward * speed, // forward
-                    KeyCode::Char('s') => scene.camera.pos -= cam_forward * speed, // backward
-                    KeyCode::Char('d') => scene.camera.pos += cam_right * speed,   // right
-                    KeyCode::Char('a') => scene.camera.pos -= cam_right * speed,   // left
-                    KeyCode::Char(' ') => scene.camera.pos += cam_up * speed,      // up
-                    KeyCode::Char('v') => scene.camera.pos -= cam_up * speed,      // down
+                    KeyCode::Char('w') => pos += cam_forward * speed, // forward
+                    KeyCode::Char('s') => pos -= cam_forward * speed, // backward
+                    KeyCode::Char('d') => pos += cam_right * speed,   // right
+                    KeyCode::Char('a') => pos -= cam_right * speed,   // left
+                    KeyCode::Char(' ') => pos += cam_up * speed,      // up
+                    KeyCode::Char('v') => pos -= cam_up * speed,      // down
                     KeyCode::Char('e') => scene.camera.yaw -= 0.05,
                     KeyCode::Char('q') => scene.camera.yaw += 0.05,
                     KeyCode::Char('r') => scene.camera.pitch += 0.05,
@@ -147,11 +154,18 @@ fn main() -> Result<()> {
                     KeyCode::Char('h') => scene.camera.fov -= 0.05,
                     KeyCode::Char('x') => display_color = false,
                     KeyCode::Char('c') => display_color = true,
+                    KeyCode::Char('1') => move_camera = false,
+                    KeyCode::Char('2') => move_camera = true,
                     _ => {}
                 }
             }
         }
-        scene.lights[0].pos = scene.camera.pos;
+        if !move_camera {
+            scene.camera.pos += pos;
+        } else {
+            scene.lights[0].pos += pos;
+        }
+        // scene.lights[0].pos = scene.camera.pos;
 
         grid.resize(cols, rows, (0, 0), BrailleCharUnOrdered::EMPTY);
         canva.clear();
@@ -159,9 +173,9 @@ fn main() -> Result<()> {
 
         // render
         scene.clear_queue();
-        scene.queue_render(&bunny_img);
-        scene.queue_render(&cat_img);
-        scene.queue_render(&butter_img);
+        // scene.queue_render(&bunny_img);
+        // scene.queue_render(&cat_img);
+        // scene.queue_render(&butter_img);
         scene.queue_render(&model);
         scene.render(&mut canva);
 
@@ -383,6 +397,12 @@ fn main() -> Result<()> {
                 )?;
             }
         }
+
+        // queue!(
+        //     stdout,
+        //     MoveTo(0, 0),
+        //     Print(format!("{:?}", scene.camera.pos))
+        // )?;
 
         stdout.flush()?;
         last_frame = now;

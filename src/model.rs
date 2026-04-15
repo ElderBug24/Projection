@@ -1,6 +1,5 @@
 use crate::render::*;
 
-use std::rc::Rc;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
@@ -8,15 +7,14 @@ use std::cmp::Ordering;
 use std::time::Instant;
 
 use glam::{Vec3, Vec2};
-use image::{RgbImage, ImageError};
+use image::RgbImage;
 
 
 pub struct Model3D {
     pub vertices: Vec<Vec3>,
     pub uv: Vec<Vec2>,
     pub normals: Vec<Vec3>,
-    pub faces: Vec<Face>,
-    pub texture: Rc<RgbImage>
+    pub groups: Vec<Group>
 }
 
 #[derive(Default)]
@@ -24,8 +22,7 @@ pub struct Model3DBuilder {
     pub vertices: Vec<Vec3>,
     pub uv: Vec<Vec2>,
     pub normals: Vec<Vec3>,
-    pub faces: Vec<Face>,
-    pub texture: Option<Rc<RgbImage>>
+    pub groups: Vec<Group>
 }
 
 impl Model3DBuilder {
@@ -38,8 +35,7 @@ impl Model3DBuilder {
             vertices: self.vertices,
             uv: self.uv,
             normals: self.normals,
-            faces: self.faces,
-            texture: self.texture.unwrap_or(RgbImage::from_raw(1, 1, vec![127, 255, 127]).unwrap().into()) // 1x1 white texture
+            groups: self.groups
         };
     }
 
@@ -49,9 +45,12 @@ impl Model3DBuilder {
         let mut vertices = Vec::new();
         let mut uv = Vec::new();
         let mut normals = Vec::new();
-        let mut faces = Vec::new();
+        let mut groups = vec![Group::default()];
+        let mut group_id = 0;
 
-        let mut faces_without_normals: Vec<usize> = Vec::new();
+        let mut faces = Vec::new();
+        let mut faces_without_normals = Vec::new();
+        let mut total_faces = 0;
 
         let file = File::open(filename)?;
         let lines = BufReader::new(file).lines();
@@ -132,7 +131,7 @@ impl Model3DBuilder {
                     };
                 },
                 "f" => {
-                    let previous_len = faces.len();
+                    faces.clear();
                     let mut face_words = words.map(|word| parse_face_word(word));
 
                     let Some(a) = face_words.next().flatten() else {
@@ -148,8 +147,6 @@ impl Model3DBuilder {
 
                     while let Some(c) = face_words.next() {
                         let Some(c) = c else {
-                            faces.truncate(previous_len);
-
                             break;
                         };
 
@@ -163,7 +160,7 @@ impl Model3DBuilder {
                             continue;
                         }
                         if n_a == 0 || n_b == 0 || n_c == 0 {
-                            faces_without_normals.push(faces.len());
+                            faces_without_normals.push((group_id, groups[group_id].faces.len()));
                         }
 
                         let v_o = vertices.len() as isize;
@@ -188,6 +185,9 @@ impl Model3DBuilder {
 
                         b = c;
                     }
+
+                    total_faces += faces.len();
+                    groups[group_id].faces.extend_from_slice(&faces);
                 },
                 _ => println!("Unknown at line {}: {} {}", row, mode, words.fold(String::new(), |a, b| a + b + " "))
             }
@@ -199,13 +199,23 @@ impl Model3DBuilder {
         println!(" - {} vertices", vertices.len());
         println!(" - {} uv", uv.len());
         println!(" - {} normals", normals.len());
-        println!(" - {} faces", faces.len());
+        println!(" - {} faces", total_faces);
+
+        groups[0].material = Material {
+            ns: 32.0,
+            ka: 0.2,
+            kd: Vec3::splat(0.8),
+            ks: Vec3::splat(0.8),
+            ke: Vec3::ZERO,
+            illum: IlluminationModel::Illum2,
+            texture: Some(RgbImage::from_raw(1, 1, vec![47, 107, 47]).unwrap().into())
+        };
 
         return Ok(Self {
             vertices: vertices,
             uv: uv,
             normals: normals,
-            faces: faces,
+            groups: groups,
             ..Default::default()
         });
     }
@@ -228,13 +238,13 @@ impl Model3DBuilder {
         return self;
     }
 
-    pub fn faces(mut self, faces: &[Face]) -> Self {
-        self.faces.extend(faces);
+    pub fn faces(mut self, faces: &[Face], group_id: usize) -> Self {
+        self.groups[group_id].faces.extend(faces);
 
         return self;
     }
 
-    pub fn face_from_index(mut self, vertices: (usize, usize, usize), uv: (usize, usize, usize)) -> Self {
+    pub fn face_from_index(mut self, vertices: (usize, usize, usize), uv: (usize, usize, usize), group_id: usize) -> Self {
         let (a, b, c) = vertices;
         let va = self.vertices[a];
         let vb = self.vertices[b];
@@ -243,7 +253,10 @@ impl Model3DBuilder {
         let index = self.normals.len();
         self.normals.push(normal);
 
-        self.faces.push(
+        println!("{group_id}");
+        println!("{:?}", self.groups);
+
+        self.groups[group_id].faces.push(
             Face {
                 vertices: (a, b, c),
                 uv: uv,
@@ -254,21 +267,23 @@ impl Model3DBuilder {
         return self;
     }
 
-    pub fn texture(mut self, texture: Rc<RgbImage>) -> Self {
-        self.texture = Some(texture);
+    pub fn groups(mut self, groups: &[Group]) -> Self {
+        self.groups.extend_from_slice(groups);
 
         return self;
     }
 
-    pub fn open_texture<P: AsRef<Path>>(mut self, filename: P) -> Result<Self, ImageError> {
-        return image::open(filename)
-            .map(|image| {
-                let image = image.into_rgb8();
-                self.texture = Some(image.into());
+    pub fn material(mut self, material: Material, group_id: usize) -> Self {
+        self.groups[group_id].material = material;
 
-                self
-            });
+        return self;
     }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct Group {
+    pub faces: Vec<Face>,
+    pub material: Material
 }
 
 #[derive(Debug)]
