@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::path::Path;
 
 use glam::{Vec3, Vec2, Quat};
-use image::{self, RgbImage, Rgb, ImageError};
+use image::{self, RgbImage, Rgb, GrayImage, Luma, ImageError};
 
 
 pub const NEAR: f32 = 0.1;
@@ -18,7 +18,7 @@ pub struct Scene3D {
     pub lights: Vec<Light>,
     pub buffered_faces: Vec<FaceOwned>,
     pub buffered_materials: Vec<Material>,
-    pub pixel_buffer: Vec<(usize, f32, (f32, f32, f32))>
+    pub pixel_buffer: Vec<(usize, f32, (f32, f32, f32), (Vec3, Vec3))>
 }
 
 #[derive(Default)]
@@ -58,14 +58,14 @@ impl Scene3DBuilder {
 #[derive(Clone, Copy, Debug)]
 pub struct Face {
     pub vertices: (usize, usize, usize),
-    pub uv: (usize, usize, usize),
+    pub uv: Option<(usize, usize, usize)>,
     pub normals: (usize, usize, usize)
 }
 
 #[derive(Clone, Copy)]
 pub struct FaceOwned {
     pub vertices: (Vec3, Vec3, Vec3),
-    pub uv: (Vec2, Vec2, Vec2),
+    pub uv: Option<(Vec2, Vec2, Vec2)>,
     pub normals: (Vec3, Vec3, Vec3),
     pub material_id: usize
 }
@@ -85,7 +85,7 @@ impl Scene3D {
                 let a = model.vertices[face.vertices.0];
                 let b = model.vertices[face.vertices.1];
                 let c = model.vertices[face.vertices.2];
-                let (uv_a, uv_b, uv_c) = face.uv;
+                let uv = face.uv;
                 let (n_a, n_b, n_c) = face.normals;
 
                 if CULLING {
@@ -108,9 +108,7 @@ impl Scene3D {
 
                 match a_ as u8 + b_ as u8 + c_ as u8 {
                     0 => {
-                        let uv_a = model.uv[uv_a];
-                        let uv_b = model.uv[uv_b];
-                        let uv_c = model.uv[uv_c];
+                        let uv = uv.map(|(uv_a, uv_b, uv_c)| (model.uv[uv_a], model.uv[uv_b], model.uv[uv_c]));
                         let n_a = camera_rotation * model.normals[n_a];
                         let n_b = camera_rotation * model.normals[n_b];
                         let n_c = camera_rotation * model.normals[n_c];
@@ -118,23 +116,20 @@ impl Scene3D {
                         self.buffered_faces.push(
                             FaceOwned {
                                 vertices: (a, b, c),
-                                uv: (uv_a, uv_b, uv_c),
+                                uv: uv,
                                 normals: (n_a, n_b, n_c),
                                 material_id: material_id
                             }
                         );
                     },
                     1 => {
-                        let ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)) = match (a_, b_, c_) {
-                            (true, false, false) => ((b, c, a), (uv_b, uv_c, uv_a), (n_b, n_c, n_a)),
-                            (false, true, false) => ((c, a, b), (uv_c, uv_a, uv_b), (n_c, n_a, n_b)),
-                            (false, false, true) => ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)),
+                        let ((a, b, c), uv, (n_a, n_b, n_c)) = match (a_, b_, c_) {
+                            (true, false, false) => ((b, c, a), uv.map(|(uv_a, uv_b, uv_c)| (uv_b, uv_c, uv_a)), (n_b, n_c, n_a)),
+                            (false, true, false) => ((c, a, b), uv.map(|(uv_a, uv_b, uv_c)| (uv_c, uv_a, uv_b)), (n_c, n_a, n_b)),
+                            (false, false, true) => ((a, b, c), uv.map(|(uv_a, uv_b, uv_c)| (uv_a, uv_b, uv_c)), (n_a, n_b, n_c)),
                             _ => unreachable!()
                         };
 
-                        let uv_a = model.uv[uv_a];
-                        let uv_b = model.uv[uv_b];
-                        let uv_c = model.uv[uv_c];
                         let n_a = camera_rotation * model.normals[n_a];
                         let n_b = camera_rotation * model.normals[n_b];
                         let n_c = camera_rotation * model.normals[n_c];
@@ -144,22 +139,35 @@ impl Scene3D {
 
                         let ac = c - a;
                         let bc = c - b;
-                        let uv_ac = uv_c - uv_a;
-                        let uv_bc = uv_c - uv_b;
                         let n_ac = n_c - n_a;
                         let n_bc = n_c - n_b;
 
                         let d = a + i * ac;
                         let e = b + j * bc;
-                        let uv_d = uv_a + i * uv_ac;
-                        let uv_e = uv_b + j * uv_bc;
                         let n_d = n_a + i * n_ac;
                         let n_e = n_b + j * n_bc;
+
+                        let (uv1, uv2) = match uv {
+                            Some((uv_a, uv_b, uv_c)) => {
+                                let uv_a = model.uv[uv_a];
+                                let uv_b = model.uv[uv_b];
+                                let uv_c = model.uv[uv_c];
+
+                                let uv_ac = uv_c - uv_a;
+                                let uv_bc = uv_c - uv_b;
+
+                                let uv_d = uv_a + i * uv_ac;
+                                let uv_e = uv_b + j * uv_bc;
+
+                                (Some((uv_a, uv_b, uv_e)), Some((uv_e, uv_d, uv_a)))
+                            },
+                            None => (None, None)
+                        };
 
                         self.buffered_faces.push(
                             FaceOwned {
                                 vertices: (a, b, e),
-                                uv: (uv_a, uv_b, uv_e),
+                                uv: uv1,
                                 normals: (n_a, n_b, n_e),
                                 material_id: material_id
                             }
@@ -167,23 +175,20 @@ impl Scene3D {
                         self.buffered_faces.push(
                             FaceOwned {
                                 vertices: (e, d, a),
-                                uv: (uv_e, uv_d, uv_a),
+                                uv: uv2,
                                 normals: (n_e, n_d, n_a),
                                 material_id: material_id
                             }
                         );
                     },
                     2 => {
-                        let ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)) = match (a_, b_, c_) {
-                            (false, true, true) => ((a, b, c), (uv_a, uv_b, uv_c), (n_a, n_b, n_c)),
-                            (true, false, true) => ((b, c, a), (uv_b, uv_c, uv_a), (n_b, n_c, n_a)),
-                            (true, true, false) => ((c, a, b), (uv_c, uv_a, uv_b), (n_c, n_a, n_b)),
+                        let ((a, b, c), uv, (n_a, n_b, n_c)) = match (a_, b_, c_) {
+                            (false, true, true) => ((a, b, c), uv.map(|(uv_a, uv_b, uv_c)| (uv_a, uv_b, uv_c)), (n_a, n_b, n_c)),
+                            (true, false, true) => ((b, c, a), uv.map(|(uv_a, uv_b, uv_c)| (uv_b, uv_c, uv_a)), (n_b, n_c, n_a)),
+                            (true, true, false) => ((c, a, b), uv.map(|(uv_a, uv_b, uv_c)| (uv_c, uv_a, uv_b)), (n_c, n_a, n_b)),
                             _ => unreachable!()
                         };
 
-                        let uv_a = model.uv[uv_a];
-                        let uv_b = model.uv[uv_b];
-                        let uv_c = model.uv[uv_c];
                         let n_a = camera_rotation * model.normals[n_a];
                         let n_b = camera_rotation * model.normals[n_b];
                         let n_c = camera_rotation * model.normals[n_c];
@@ -193,22 +198,32 @@ impl Scene3D {
 
                         let ac = c - a;
                         let ab = b - a;
-                        let uv_ac = uv_c - uv_a;
-                        let uv_ab = uv_b - uv_a;
                         let n_ac = n_c - n_a;
                         let n_ab = n_b - n_a;
 
                         let d = a + j * ac;
                         let e = a + i * ab;
-                        let uv_d = uv_a + j * uv_ac;
-                        let uv_e = uv_a + i * uv_ab;
                         let n_d = n_a + j * n_ac;
                         let n_e = n_a + i * n_ab;
+
+                        let uv = uv.map(|(uv_a, uv_b, uv_c)| {
+                            let uv_a = model.uv[uv_a];
+                            let uv_b = model.uv[uv_b];
+                            let uv_c = model.uv[uv_c];
+
+                            let uv_ac = uv_c - uv_a;
+                            let uv_ab = uv_b - uv_a;
+
+                            let uv_d = uv_a + j * uv_ac;
+                            let uv_e = uv_a + i * uv_ab;
+
+                            (uv_a, uv_e, uv_d)
+                        });
 
                         self.buffered_faces.push(
                             FaceOwned {
                                 vertices: (a, e, d),
-                                uv: (uv_a, uv_e, uv_d),
+                                uv: uv,
                                 normals: (n_a, n_e, n_d),
                                 material_id: material_id
                             }
@@ -222,7 +237,7 @@ impl Scene3D {
 
     pub fn render(&mut self, canva: &mut Canva) {
         self.pixel_buffer.clear();
-        self.pixel_buffer.resize(canva.width() * canva.height(), (0, f32::INFINITY, (0.0, 0.0, 0.0)));
+        self.pixel_buffer.resize(canva.width() * canva.height(), (0, f32::INFINITY, (0.0, 0.0, 0.0), (Vec3::ZERO, Vec3::ZERO)));
         let width = canva.width();
         let height = canva.height();
         let sx = width as f32 / 2.0;
@@ -241,13 +256,33 @@ impl Scene3D {
         for (face_index, face) in self.buffered_faces.iter().enumerate() {
             let (a, b, c) = face.vertices;
 
+            let tangents = if let Some((uv_a, uv_b, uv_c)) = face.uv {
+                let e1 = b - a;
+                let e2 = c - a;
+
+                let duv1 = uv_b - uv_a;
+                let duv2 = uv_c - uv_a;
+
+                let f = 1.0 / duv1.perp_dot(duv2);
+
+                let tangent = f * (duv2.y * e1 - duv1.y * e2);
+                let bitangent = f * (-duv2.x * e1 + duv1.x * e2);
+
+                (tangent, bitangent)
+            } else {
+                (Vec3::ZERO, Vec3::ZERO)
+            };
+
             let (x0, y0, z0) = (a.x / a.z * fov / aspect * sx + sx, a.y / a.z * fov * sy + sy, (a.z - NEAR) / (FAR - NEAR));
             let (x1, y1, z1) = (b.x / b.z * fov / aspect * sx + sx, b.y / b.z * fov * sy + sy, (b.z - NEAR) / (FAR - NEAR));
             let (x2, y2, z2) = (c.x / c.z * fov / aspect * sx + sx, c.y / c.z * fov * sy + sy, (c.z - NEAR) / (FAR - NEAR));
 
-            // canva.draw_circle(x0 as usize, height - y0 as usize - 1, 3, Vec3::ONE);
-            // canva.draw_circle(x1 as usize, height - y1 as usize - 1, 3, Vec3::ONE);
-            // canva.draw_circle(x2 as usize, height - y2 as usize - 1, 3, Vec3::ONE);
+            let denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+            let denom_recip = denom.recip();
+
+            // canva.draw_circle(x0 as usize, height - y0 as usize - 1, 3, Vec3::Y);
+            // canva.draw_circle(x1 as usize, height - y1 as usize - 1, 3, Vec3::Y);
+            // canva.draw_circle(x2 as usize, height - y2 as usize - 1, 3, Vec3::Y);
 
             let xmin = (x0.min(x1).min(x2).floor() as i32).clamp(0, width as i32 - 1);
             let xmax = (x0.max(x1).max(x2).ceil() as i32).clamp(0, width as i32 - 1);
@@ -257,9 +292,6 @@ impl Scene3D {
 
             for y in ymin..=ymax {
                 for x in xmin..=xmax {
-                    let denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
-                    let denom_recip = denom.recip();
-
                     let alpha = ((y1 - y2) * (x as f32 - x2) + (x2 - x1) * (y as f32 - y2)) * denom_recip;
                     let beta  = ((y2 - y0) * (x as f32 - x2) + (x0 - x2) * (y as f32 - y2)) * denom_recip;
                     let gamma = 1.0 - alpha - beta;
@@ -269,7 +301,7 @@ impl Scene3D {
 
                         let index = x as usize + y as usize * width;
                         if z_pixel < self.pixel_buffer[index].1 {
-                            self.pixel_buffer[index] = (face_index + 1, z_pixel, (alpha, beta, gamma));
+                            self.pixel_buffer[index] = (face_index + 1, z_pixel, (alpha, beta, gamma), tangents);
                         }
                     }
                 }
@@ -278,7 +310,7 @@ impl Scene3D {
 
         for y in 0..height {
             for x in 0..width {
-                let (face_index, z_pixel, (alpha, beta, gamma)) = self.pixel_buffer[x + y * width];
+                let (face_index, z_pixel, (alpha, beta, gamma), (tangent, bitangent)) = self.pixel_buffer[x + y * width];
                 if face_index == 0 {
                     continue;
                 }
@@ -288,37 +320,42 @@ impl Scene3D {
                 let (a, b, c) = face.vertices;
                 let (w_a_, w_b_, w_c_) = (a.z.recip(), b.z.recip(), c.z.recip());
                 let (w_a, w_b, w_c) = (alpha * w_a_, beta * w_b_, gamma * w_c_);
-                let (uv_a, uv_b, uv_c) = face.uv;
+                let w = w_a + w_b + w_c;
+                let w_recip = w.recip();
                 let (n_a, n_b, n_c) = face.normals;
 
-                let w = w_a + w_b + w_c;
-                let uv = (uv_a * w_a + uv_b * w_b + uv_c * w_c) / w;
-                let normal = ((n_a * w_a + n_b * w_b + n_c * w_c) / w).normalize();
-                let pos = (a * w_a + b * w_b + c * w_c) / w;
+                let normal = ((n_a * w_a + n_b * w_b + n_c * w_c) * w_recip).normalize();
+                let pos = (a * w_a + b * w_b + c * w_c) * w_recip;
+
+                // let uv = face.uv.map(|(uv_a, uv_b, uv_c)| (uv_a * w_a + uv_b * w_b + uv_c * w_c) * w_recip);
+                //
+                // let tangents = tangents.map(|(tangent, bitangent)| {
+                //     let tangent = (tangent - normal * tangent.dot(normal)).normalize();
+                //     let bitangent = normal.cross(tangent);
+                //
+                //     (tangent, bitangent)
+                // });
+
+                let uv_tangents = face.uv.map(|(uv_a, uv_b, uv_c)| {
+                    let uv = (uv_a * w_a + uv_b * w_b + uv_c * w_c) * w_recip;
+
+                    let tangent = (tangent - normal * tangent.dot(normal)).normalize();
+                    let bitangent = normal.cross(tangent);
+
+                    (uv, (tangent, bitangent))
+                });
+
+                let color = (Vec3::X * w_a + Vec3::Y * w_b + Vec3::Z * w_c) * w_recip;
 
                 let fragment = Fragment {
                     world_pos: pos,
                     normal: normal,
-                    uv: Some(uv),
+                    uv_tangents: uv_tangents,
                     screen_pos: Vec3::new(x as f32, y as f32, z_pixel),
-                    color: Vec3::ONE
+                    color: color
                 };
 
                 let result = material.render(&fragment, &lights, Vec3::ONE);
-
-                // let mut light_sum = 0.0;
-                // for light in &lights {
-                //     let l = light.pos - pos;
-                //
-                //     // light_sum += 0.0_f32.max(normal.dot(l)) * light.intensity / l.length().powi(3);
-                //     light_sum += 0.1 + 0.9 * normal.dot(l.normalize()).abs() * light.intensity;
-                // }
-                //
-                // // let light_sum = 1.0_f32;
-                //
-                // // let result = Vec3::ONE;
-                // // let result = color;
-                // let result = color * light_sum.clamp(0.0, 1.0);
 
                 canva.array[x + (height - y - 1) * width] = result;
             }
@@ -326,13 +363,20 @@ impl Scene3D {
 
         for light in lights {
             let [x, y, z] = light.pos.to_array();
-            let (x, y) = (x / z * fov / aspect * sx + sx, y / z * fov * sy + sy);//, (z - NEAR) / (FAR - NEAR));
-            canva.draw_circle(x as usize, height - y as usize - 1, 3, Vec3::splat(3.0));
+            if z > NEAR {
+                let (x, y) = (x / z * fov / aspect * sx + sx, y / z * fov * sy + sy);
+
+                if (0..(width as isize)).contains(&(x as isize)) && (0..(height as isize)).contains(&(y as isize)) {
+                    canva.draw_circle(x as usize, height - y as usize - 1, 3, Vec3::splat(3.0));
+                    canva.draw_circle(x as usize, height - y as usize - 1, 2, Vec3::ZERO);
+                }
+            }
         }
     }
 
     pub fn clear_queue(&mut self) {
         self.buffered_faces.clear();
+        self.buffered_materials.clear();
     }
 }
 
@@ -454,6 +498,17 @@ impl Canva {
             }
         }
     }
+
+    pub fn save<P: AsRef<Path>>(&self, filename: P) {
+        let mut arr = unsafe { std::mem::transmute::<_, Vec<f32>>(self.array.clone()) };
+        unsafe { arr.set_len(arr.len() * 3) };
+        let w = self.width() as u32;
+        let h = self.height() as u32;
+        let arr = arr.into_iter().map(|c| (c * 255.0) as u8).collect::<Vec<_>>();
+
+        let image = RgbImage::from_raw(w, h, arr).unwrap();
+        image.save(filename).unwrap();
+    }
 }
 
 #[inline(always)]
@@ -479,17 +534,29 @@ pub fn vec3_to_rgb(v: Vec3) -> Rgb<u8> {
 }
 
 #[derive(Clone, Copy, Debug)]
-#[repr(u8)]
 pub enum IlluminationModel {
     Illum0 = 0,
     Illum1 = 1,
     Illum2 = 2
 }
 
+impl TryFrom<u8> for IlluminationModel {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        return match value {
+            0 => Ok(Self::Illum0),
+            1 => Ok(Self::Illum1),
+            2 => Ok(Self::Illum2),
+            _ => Err(())
+        };
+    }
+}
+
 pub struct Fragment {
     pub world_pos: Vec3,
     pub normal: Vec3,
-    pub uv: Option<Vec2>,
+    pub uv_tangents: Option<(Vec2, (Vec3, Vec3))>,
     pub screen_pos: Vec3,
     pub color: Vec3
 }
@@ -497,41 +564,69 @@ pub struct Fragment {
 #[derive(Clone, Debug)]
 pub struct Material {
     pub ns: f32,
-    pub ka: f32,
+    pub ka: Vec3,
     pub kd: Vec3,
     pub ks: Vec3,
     pub ke: Vec3,
-    pub illum: IlluminationModel,
-    pub texture: Option<Rc<RgbImage>>
+    pub map_ka: Option<Rc<RgbImage>>,
+    pub map_kd: Option<Rc<RgbImage>>,
+    pub map_ks: Option<Rc<RgbImage>>,
+    pub map_ns: Option<Rc<GrayImage>>,
+    pub map_bump: BumpTexture,
+    pub illum: IlluminationModel
 }
 
 impl Default for Material {
     fn default() -> Self {
         return Self {
-            ns: 0.0,
-            ka: 1.0,
-            kd: Vec3::ONE,
+            ns: 32.0,
+            ka: Vec3::splat(1.0),
+            kd: Vec3::splat(1.0),
             ks: Vec3::ZERO,
             ke: Vec3::ZERO,
-            illum: IlluminationModel::Illum0,
-            texture: Some(RgbImage::from_raw(1, 1, vec![255, 255, 255]).unwrap().into())
+            map_ka: None,
+            map_kd: None,
+            map_ks: None,
+            map_ns: None,
+            map_bump: BumpTexture::None,
+            illum: IlluminationModel::Illum1,
         };
     }
 }
 
 impl Material {
     pub fn render(&self, fragment: &Fragment, ligths: &[Light], ia: Vec3) -> Vec3 {
-        let &Fragment { world_pos, normal, uv, screen_pos: _, color: _ } = fragment;
-        let &Material { ns, ka, kd, ks, ke, illum, ref texture } = self;
+        let &Fragment { world_pos, normal, uv_tangents, screen_pos: _, color } = fragment;
+        let &Material { ns, ka, kd, ks, ke, illum, ref map_ka, ref map_kd, ref map_ks, ref map_ns, ref map_bump } = self;
 
-        let kd = if let (Some(texture), Some(uv)) = (texture.as_ref(), uv) {
-            rgb_to_vec3(texture.get_pixel_checked((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32).copied().unwrap_or(Rgb([0, 0, 0])))
-        } else {
-            Vec3::ONE
-        } * kd;
+        let (ka, kd, ks, ns, normal) = if let Some((uv, (tangent, bitangent))) = uv_tangents {
+            let ka = if let Some(texture) = map_ka.as_ref() {
+                rgb_to_vec3(texture.get_pixel_checked((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32).copied().unwrap_or(Rgb([0, 0, 0])))
+            } else {
+                Vec3::ONE
+            } * ka;
+            let kd = if let Some(texture) = map_kd.as_ref() {
+                rgb_to_vec3(texture.get_pixel_checked((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32).copied().unwrap_or(Rgb([0, 0, 0])))
+            } else {
+                Vec3::ONE
+            } * kd;
+            let ks = if let Some(texture) = map_ks.as_ref() {
+                rgb_to_vec3(texture.get_pixel_checked((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32).copied().unwrap_or(Rgb([0, 0, 0])))
+            } else {
+                Vec3::ONE
+            } * ks;
+            let ns = if let Some(texture) = map_ns.as_ref() {
+                texture.get_pixel_checked((uv.x * texture.width() as f32) as u32, (uv.y * texture.height() as f32) as u32).copied().unwrap_or(Luma([0]))[0] as f32
+            } else {
+                1.0
+            } * ns;
+            let normal = map_bump.get_normal(uv, normal, tangent, bitangent);
+
+            (ka, kd, ks, ns, normal)
+        } else { (ka, kd, ks, ns, normal) };
 
         return match illum {
-            IlluminationModel::Illum0 => ke + kd,
+            IlluminationModel::Illum0 => ke + ka,
             IlluminationModel::Illum1 => ke + ka * ia + kd * ligths.iter().map(|light| light.intensity * light.color * normal.dot((light.pos - world_pos).normalize()).max(0.0)).sum::<Vec3>(),
             IlluminationModel::Illum2 => ke + ka * ia + {
                 let v = (-world_pos).normalize();
@@ -547,20 +642,156 @@ impl Material {
         };
     }
 
-    pub fn with_texture(mut self, texture: Rc<RgbImage>) -> Self {
-        self.texture = Some(texture);
+    pub fn with_map(mut self, source: ColorMapSource, destination: ColorMapDestination) -> Self {
+        let mut result = Self::default();
 
-        return self;
+        if let ColorMapSource::TextureL(texture) = source {
+            assert_eq!(ColorMapDestination::Ns, destination);
+
+            result.map_ns = Some(texture);
+
+            return result;
+        }
+
+        let texture = match source {
+            ColorMapSource::Ka => None,
+            ColorMapSource::Kd => None,
+            ColorMapSource::Ks => None,
+            ColorMapSource::TextureRGB(texture) => Some(texture),
+            ColorMapSource::TextureL(_) => unreachable!()
+        };
+
+        match destination {
+            ColorMapDestination::Ka => result.map_ka = texture,
+            ColorMapDestination::Kd => result.map_ka = texture,
+            ColorMapDestination::Ks => result.map_ka = texture,
+            ColorMapDestination::Ns => panic!("map_ns only accepts Luma8 textures")
+        }
+
+        return result;
     }
 
-    pub fn with_open_texture<P: AsRef<Path>>(mut self, filename: P) -> Result<Self, ImageError> {
-        return image::open(filename)
-            .map(|image| {
-                let image = image.into_rgb8();
-                self.texture = Some(image.into());
+    pub fn set_map(&mut self, source: ColorMapSource, destination: ColorMapDestination) {
+        if let ColorMapSource::TextureL(texture) = source {
+            assert_eq!(ColorMapDestination::Ns, destination);
 
-                self
-            });
+            self.map_ns = Some(texture);
+
+            return;
+        }
+
+        let texture = match source {
+            ColorMapSource::Ka => self.map_ka.clone(),
+            ColorMapSource::Kd => self.map_kd.clone(),
+            ColorMapSource::Ks => self.map_ks.clone(),
+            ColorMapSource::TextureRGB(texture) => Some(texture),
+            ColorMapSource::TextureL(_) => unreachable!()
+        };
+
+        match destination {
+            ColorMapDestination::Ka => self.map_ka = texture,
+            ColorMapDestination::Kd => self.map_ka = texture,
+            ColorMapDestination::Ks => self.map_ka = texture,
+            ColorMapDestination::Ns => panic!("map_ns only accepts Luma8 textures")
+        }
+    }
+}
+
+pub enum ColorMapSource {
+    Ka,
+    Kd,
+    Ks,
+    TextureRGB(Rc<RgbImage>),
+    TextureL(Rc<GrayImage>)
+}
+
+impl ColorMapSource {
+    pub fn from_file_rgb<P: AsRef<Path>>(filename: P) -> Result<Self, ImageError> {
+        return Ok(Self::TextureRGB(image::open(filename).map(|image| image.into_rgb8())?.into()));
+    }
+
+    pub fn from_file_l<P: AsRef<Path>>(filename: P) -> Result<Self, ImageError> {
+        return Ok(Self::TextureL(image::open(filename).map(|image| image.into_luma8())?.into()));
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ColorMapDestination {
+    Ka,
+    Kd,
+    Ks,
+    Ns
+}
+
+#[derive(Clone, Debug)]
+pub enum BumpTexture {
+    None,
+    Height(Rc<GrayImage>, f32),
+    Normal(Rc<RgbImage>)
+}
+
+impl BumpTexture {
+    pub fn from_file<P: AsRef<Path>>(filename: P, bm: f32) -> Result<Self, ImageError> {
+        let image = image::open(filename)?;
+
+        return Ok(if image.color().has_color() {
+            Self::Normal(image.into_rgb8().into())
+        } else {
+            Self::Height(image.into_luma8().into(), bm)
+        });
+    }
+
+    pub fn get_normal(&self, uv: Vec2, normal: Vec3, tangent: Vec3, bitangent: Vec3) -> Vec3 {
+        return match self {
+            Self::None => normal,
+            Self::Height(texture, bm) => {
+                let w = texture.width() as f32;
+                let h = texture.height() as f32;
+
+                let du = 1.0 / w;
+                let dv = 1.0 / h;
+
+                let sample = |uv: Vec2| {
+                    let x = (uv.x * w) as u32;
+                    let y = (uv.y * h) as u32;
+                    texture.get_pixel_checked(x, y).map(|p| p[0] as f32 / 255.0).unwrap_or(0.0)
+                };
+
+                let h0 = sample(uv);
+                let hx = sample(uv + Vec2::new(du, 0.0));
+                let hy = sample(uv + Vec2::new(0.0, dv));
+
+                let dx = (hx - h0) * bm;
+                let dy = (hy - h0) * bm;
+
+                let n_tangent = Vec3::new(-dx, -dy, 1.0).normalize();
+
+                (tangent * n_tangent.x +
+                bitangent * n_tangent.y +
+                normal * n_tangent.z).normalize()
+            },
+            Self::Normal(texture) => {
+                let w = texture.width() as f32;
+                let h = texture.height() as f32;
+
+                let x = (uv.x * w) as u32;
+                let y = (uv.y * h) as u32;
+
+                let p = texture.get_pixel_checked(x, y).copied().unwrap_or(Rgb([128, 128, 255]));
+
+                let n = Vec3::new(
+                    p[0] as f32 / 255.0,
+                    p[1] as f32 / 255.0,
+                    p[2] as f32 / 255.0,
+                ) * 2.0 - Vec3::ONE;
+
+                let n_tangent = n.normalize();
+
+                (tangent * n_tangent.x +
+                bitangent * n_tangent.y +
+                normal * n_tangent.z).normalize()
+            }
+        };
     }
 }
 

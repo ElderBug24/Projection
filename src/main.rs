@@ -1,5 +1,6 @@
 mod render;
 mod model;
+mod parsing;
 
 use crate::render::*;
 use crate::model::*;
@@ -43,8 +44,7 @@ fn main() -> Result<()> {
     let mut scene = Scene3DBuilder::new()
         .lights(&[
             Light {
-                // pos: Vec3::ZERO,
-                pos: Vec3::new(-18.089386, 127.5, 89.400246),
+                pos: Vec3::ZERO,
                 intensity: 1.0,
                 color: Vec3::ONE
             }
@@ -64,9 +64,9 @@ fn main() -> Result<()> {
     //         Vec2::new(1.0, 1.0)
     //     ])
     //     .groups(&[Group::default()])
-    //     .face_from_index((0, 1, 3), (0, 1, 3), 0)
-    //     .face_from_index((0, 3, 2), (0, 3, 2), 0)
-    //     .material(Material::default().with_open_texture("./bunny.jpg").unwrap(), 0)
+    //     .face_from_index((0, 1, 3), Some((1, 2, 4)), 0)
+    //     .face_from_index((0, 3, 2), Some((1, 4, 3)), 0)
+    //     .material(Material::default().with_map(ColorMapSource::from_file_rgb("./models/bunny.jpg").unwrap(), ColorMapDestination::Ka), 0)
     //     .build();
     // let cat_img = Model3DBuilder::new()
     //     .vertices(&[
@@ -82,9 +82,9 @@ fn main() -> Result<()> {
     //         Vec2::new(1.0, 1.0)
     //     ])
     //     .groups(&[Group::default()])
-    //     .face_from_index((0, 1, 3), (0, 1, 3), 0)
-    //     .face_from_index((0, 3, 2), (0, 3, 2), 0)
-    //     .material(Material::default().with_open_texture("./cat.jpg").unwrap(), 0)
+    //     .face_from_index((0, 1, 3), Some((1, 2, 4)), 0)
+    //     .face_from_index((0, 3, 2), Some((1, 4, 3)), 0)
+    //     .material(Material::default().with_map(ColorMapSource::from_file_rgb("./models/cat.jpg").unwrap(), ColorMapDestination::Ka), 0)
     //     .build();
     // let butter_img = Model3DBuilder::new()
     //     .vertices(&[
@@ -100,11 +100,13 @@ fn main() -> Result<()> {
     //         Vec2::new(1.0, 1.0)
     //     ])
     //     .groups(&[Group::default()])
-    //     .face_from_index((0, 1, 3), (0, 1, 3), 0)
-    //     .face_from_index((0, 3, 2), (0, 3, 2), 0)
-    //     .material(Material::default().with_open_texture("./butter.jpg").unwrap(), 0)
+    //     .face_from_index((0, 1, 3), Some((1, 2, 4)), 0)
+    //     .face_from_index((0, 3, 2), Some((1, 4, 3)), 0)
+    //     .material(Material::default().with_map(ColorMapSource::from_file_rgb("./models/butter.jpg").unwrap(), ColorMapDestination::Ka), 0)
     //     .build();
-    let model = Model3DBuilder::from_file("./model.obj").unwrap()
+    // let model = Model3DBuilder::from_file("./models/model.obj").unwrap()
+    // let model = Model3DBuilder::from_file("./models/f40.obj").unwrap()
+    let model = Model3DBuilder::from_file("models/Skull_v3_L2.123c1407fc1e-ea5c-4cb9-9072-d28b8aba4c36/12140_Skull_v3_L2.obj").unwrap()
         .build();
 
     queue!(stdout, EnterAlternateScreen)?;
@@ -156,6 +158,7 @@ fn main() -> Result<()> {
                     KeyCode::Char('c') => display_color = true,
                     KeyCode::Char('1') => move_camera = false,
                     KeyCode::Char('2') => move_camera = true,
+                    KeyCode::Char('3') => canva.save("./screenshot.png"),
                     _ => {}
                 }
             }
@@ -180,9 +183,10 @@ fn main() -> Result<()> {
         scene.render(&mut canva);
 
         // dithering
+        let arr = &mut canva.array.clone();
         for y in 0..(rows*4) {
             for x in 0..(cols*2) {
-                let oldpixel = canva.array[index(x, y, cols * 2)].clamp(Vec3::ZERO, Vec3::ONE);
+                let oldpixel = arr[index(x, y, cols * 2)].clamp(Vec3::ZERO, Vec3::ONE);
                 let (b, nl) = match oldpixel.element_sum() {
                     0.0..1.5 => (false, 0.0),
                     _ => (true, 1.0)
@@ -202,21 +206,21 @@ fn main() -> Result<()> {
                 let down2 = y + 2 < rows * 4;
 
                 if right {
-                    canva.array[index(x+1, y, cols * 2)] += quant_error;
+                    arr[index(x+1, y, cols * 2)] += quant_error;
                     if right2 {
-                        canva.array[index(x+2, y, cols * 2)] += quant_error;
+                        arr[index(x+2, y, cols * 2)] += quant_error;
                     }
                     if down {
-                        canva.array[index(x+1, y+1, cols * 2)] += quant_error;
+                        arr[index(x+1, y+1, cols * 2)] += quant_error;
                     }
                 }
                 if down {
-                    canva.array[index(x, y+1, cols * 2)] += quant_error;
+                    arr[index(x, y+1, cols * 2)] += quant_error;
                     if left {
-                        canva.array[index(x-1, y+1, cols * 2)] += quant_error;
+                        arr[index(x-1, y+1, cols * 2)] += quant_error;
                     }
                     if down2 {
-                        canva.array[index(x, y+2, cols * 2)] += quant_error;
+                        arr[index(x, y+2, cols * 2)] += quant_error;
                     }
                 }
             }
@@ -239,7 +243,7 @@ fn main() -> Result<()> {
         )?;
 
         line_buf.reserve_exact(cols as usize);
-        if rows > 1 { // line 0
+        if rows > 0 { // line 0
             line_buf.clear();
             let mut x = 0;
 
@@ -287,7 +291,7 @@ fn main() -> Result<()> {
             )?;
         }
 
-        if rows > 2 { // line 1
+        if rows > 1 { // line 1
             line_buf.clear();
             let mut x = 0;
 
@@ -330,7 +334,7 @@ fn main() -> Result<()> {
             )?;
         }
 
-        if rows > 3 { // line 2
+        if rows > 2 { // line 2
             line_buf.clear();
             let mut x = 0;
 
