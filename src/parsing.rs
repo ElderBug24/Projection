@@ -55,9 +55,9 @@ impl Model3DBuilder {
             let Some((mode, line)) = line.trim().split_once(' ') else { continue };
 
             match mode {
-                "#" => println!("Comment at line {}: {}", row, line),
-                "o" => println!("Object name at line {}: {}", row, line),
-                "g" => println!("Group name at line {}: {}", row, line),
+                "#" => {}, // println!("Comment at line {}: {}", row, line),
+                "o" => {}, // println!("Object name at line {}: {}", row, line),
+                "g" => {}, // println!("Group name at line {}: {}", row, line),
                 "v" => {
                     let mut words = line.split_whitespace();
                     let (Some(a), Some(b), Some(c)) = (words.next(), words.next(), words.next())  else { println!("Error parsing line {}", row); continue };
@@ -154,7 +154,7 @@ impl Model3DBuilder {
                         materials.remove(&name).unwrap();
                     }
 
-                    println!("New group with material at line {}: {}", row, material_name);
+                    // println!("New group with material at line {}: {}", row, material_name);
 
                     groups_material_name.push(material_name.to_string());
                     groups.push(Group::default());
@@ -270,7 +270,7 @@ fn parse_mtllib<P: AsRef<Path>>(filename: P, materials: &mut HashMap<String, Mat
         match mode {
             "newmtl" => {
                 let name = line;
-                println!("New material: '{}'", name);
+                // println!("New material: '{}'", name);
 
                 if let Some(material) = material {
                     materials.insert(material_name, material);
@@ -280,75 +280,75 @@ fn parse_mtllib<P: AsRef<Path>>(filename: P, materials: &mut HashMap<String, Mat
                 material_name = name.into();
             },
             "Ns" => {
-                let Some(ns) = line.parse::<f32>().ok() else { println!("Error parsing line {}", row); continue };
+                let Some(ns) = line.parse::<f32>().ok() else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue };
 
                 if let Some(material) = material.as_mut() {
                     material.ns = ns;
                 }
             },
             "Ka" => {
-                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}", row); continue };
+                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue };
 
                 if let Some(material) = material.as_mut() {
                     material.ka = color;
                 }
             },
             "Kd" => {
-                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}", row); continue };
+                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue };
 
                 if let Some(material) = material.as_mut() {
                     material.kd = color;
                 }
             },
             "Ks" => {
-                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}", row); continue };
+                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue };
 
                 if let Some(material) = material.as_mut() {
                     material.ks = color;
                 }
             },
             "Ke" => {
-                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}", row); continue };
+                let Some(color) = parse_color(line.split_whitespace()) else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue };
 
                 if let Some(material) = material.as_mut() {
                     material.ke = color;
                 }
             },
             "illum" => {
-                let Some((model_id, _)) = line.split_once(' ') else { println!("Error parsing line {}", row); continue };
+                let (model_id, _) = line.split_once(' ').unwrap_or((line, ""));
 
                 if let Some(model) = model_id.parse::<u8>().ok().map(|value| value.min(2).try_into().ok()).flatten() {
                     if let Some(material) = material.as_mut() {
                         material.illum = model;
                     }
-                }
+                } else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue }
             },
             "map_Ka" => {
                 if let Some(material) = material.as_mut() {
                     if let Ok(color_map_source) = ColorMapSource::from_file_rgb(parent.join(line)) {
                         material.set_map(color_map_source, ColorMapDestination::Ka)
-                    } else { println!("Error parsing line {}", row); continue }
+                    } else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue }
                 }
             },
             "map_Kd" => {
                 if let Some(material) = material.as_mut() {
                     if let Ok(color_map_source) = ColorMapSource::from_file_rgb(parent.join(line)) {
                         material.set_map(color_map_source, ColorMapDestination::Kd)
-                    } else { println!("Error parsing line {}", row); continue }
+                    } else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue }
                 }
             },
             "map_Ks" => {
                 if let Some(material) = material.as_mut() {
                     if let Ok(color_map_source) = ColorMapSource::from_file_rgb(parent.join(line)) {
                         material.set_map(color_map_source, ColorMapDestination::Ks)
-                    } else { println!("Error parsing line {}", row); continue }
+                    } else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue }
                 }
             },
             "map_Ns" => {
                 if let Some(material) = material.as_mut() {
                     if let Ok(color_map_source) = ColorMapSource::from_file_l(parent.join(line)) {
                         material.set_map(color_map_source, ColorMapDestination::Ns)
-                    } else { println!("Error parsing line {}", row); continue }
+                    } else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue }
                 }
             },
             "bump" | "map_bump" => {
@@ -356,12 +356,13 @@ fn parse_mtllib<P: AsRef<Path>>(filename: P, materials: &mut HashMap<String, Mat
                 let (bm, filename) = bm.unwrap_or((1.0, line));
 
                 if let Some(material) = material.as_mut() {
-                    if let Ok(bump_map) = BumpTexture::from_file(filename, bm) {
+                    if let Ok(bump_map) = BumpTexture::from_file(parent.join(filename), bm) {
                         material.map_bump = bump_map;
-                    } else { println!("Error parsing line {}", row); continue }
+                    } else { println!("Error parsing line {}: '{} {}'", row, mode, line); continue }
                 }
             },
-            mode @ ("Ni" | "sharpness" | "d" | "map_d" | "Tr") => println!("Error parsing line {}, '{}' not supported", row, mode),
+            "#" => {},
+            mode @ ("Ni" | "sharpness" | "d" | "map_d" | "Tr" | "Tf") => println!("Error parsing line {}, mode '{}' not supported", row, mode),
             mode @ _ => println!("Error parsing line {}, '{}' unknown", row, mode)
         }
     }
